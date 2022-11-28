@@ -7,7 +7,7 @@ const ZORO_MAGIC_NUMBER = 0x7E3CB1A9;
 
 const allocator = std.heap.c_allocator;
 
-const zoro_state = enum {
+const ZoroState = enum {
     DONE,
     ACTIVE,
     RUNNING,
@@ -62,7 +62,7 @@ pub fn _zoro_jumpout(zoro: *Zoro) void {
     _ = _zoro_switch(&context.ctx, &context.back_ctx);
 }
 
-pub fn _zoro_running() ?*Zoro {
+pub fn _zoro_running() callconv(.C) ?*Zoro {
     return current_zoro;
 }
 
@@ -110,7 +110,7 @@ pub const Context = struct {
 
 pub const Zoro = struct {
     context: ?*anyopaque,
-    state: zoro_state,
+    state: ZoroState,
     func: ?*const fn(*Zoro) anyerror!void,
     prev: ?*Zoro,
     user_data: ?*anyopaque,
@@ -165,8 +165,6 @@ pub const Zoro = struct {
         allocator.destroy(self);
     }
 
-    pub extern fn memcpy(__dest: ?*anyopaque, __src: ?*const anyopaque, __n: c_ulong) ?*anyopaque;
-
     pub fn peek(self: *Zoro, dest: ?*anyopaque, len: usize) !void {
         if(len > 0) {
             if(len > self.bytes_stored)
@@ -175,37 +173,32 @@ pub const Zoro = struct {
             if(dest != null)
                 return error.ZoroPeekInvalidPointer;
 
-            _ = memcpy(dest, @ptrCast(?*const anyopaque, &self.storage[self.bytes_stored -% len]), len);
+            @memcpy(@ptrCast([*]u8, dest), self.storage, len);
         }
     }
 
-    pub fn push(self: *Zoro, src: ?*const anyopaque, len: usize) !void {
+    pub fn push(self: *Zoro, src: anytype) !void {
+        const len = @sizeOf(@TypeOf(src));
         if(len > 0) {
             var local_bytes: usize = self.bytes_stored +% len;
  
             if(local_bytes > self.storage_size)
                 return error.ZoroPushNotEnoughSpace;
 
-            if(src == null)
-                return error.ZoroPushInvalidPointer;
-
-            std.log.info("len : {}", .{len});
-            _ = memcpy(@ptrCast(?*anyopaque, &self.storage[self.bytes_stored]), src, len);
+            @memcpy(@ptrCast([*]u8, self.storage), @ptrCast([*c]const u8, src), len);
             self.bytes_stored = local_bytes;
         }
     }
 
-    pub fn pop(self: *Zoro, dest: ?*anyopaque, len: usize) !void {
+    pub fn pop(self: *Zoro, dest: anytype) !void {
+        const len = @sizeOf(@TypeOf(dest));
         if(len > 0) {
             if(len > self.bytes_stored)
                 return error.ZoroPopNotEnoughSpace;
 
             var local_bytes: usize = self.bytes_stored -% len;
 
-            if(dest != null) {
-                _ = memcpy(dest, @ptrCast(?*const anyopaque, &self.storage[local_bytes -% len]), len);
-                std.log.info("poppin {}", .{len});
-            }
+            @memcpy(@ptrCast([*]u8, dest), self.storage, len);
 
             self.bytes_stored = local_bytes;
         }
@@ -213,7 +206,7 @@ pub const Zoro = struct {
 
     pub fn running(self: *Zoro) ?*Zoro {
         _ = self;
-        var func: ?*const fn () ?*Zoro = &_zoro_running;
+        var func: ?*const fn () callconv(.C) ?*Zoro = &_zoro_running;
         return func.?();
     }
 
@@ -226,7 +219,7 @@ pub const Zoro = struct {
         _zoro_jumpin(self);
     }
 
-    pub fn status(self: *Zoro) zoro_state {
+    pub fn status(self: *Zoro) ZoroState {
         return self.state;
     }
 

@@ -2,40 +2,36 @@ const std = @import("std");
 
 const Zoro = @import("zoro").Zoro;
 
-//callconv(.C)?
 pub fn fibonacci(zoro: *Zoro) !void {
-    var m: c_ulong = 1;
-    var n: c_ulong = 1;
-    var max: c_ulong = undefined;
+    var m: u64 = 1;
+    var n: u64 = 1;
+    var max: u64 = undefined;
 
-    try zoro.pop(@ptrCast(?*anyopaque, &max), @sizeOf(c_ulong));
-
-    std.log.info("zoro: {} max: {}", .{zoro, max});
+    try zoro.pop(&max);
     while (true) {
-        try zoro.push(@ptrCast(?*const anyopaque, &m), @sizeOf(c_ulong));
+        try zoro.push(&m);
         try zoro.yield();
-        var tmp: c_ulong = m +% n;
+        var tmp: u64 = m +% n;
         m = n;
         n = tmp;
         if (m >= max) break;
     }
-    try zoro.push(@ptrCast(?*const anyopaque, &m), @sizeOf(c_ulong));
+    try zoro.push(&m);
 }
 
 pub fn main() !void {
     var zoro = try Zoro.create(fibonacci, 0);
 
-    var max: c_ulong = 100000000;
-    try zoro.push(@ptrCast(?*const anyopaque, &max), @sizeOf(c_ulong));
-    var counter: c_int = 1;
+    var max: u64 = 10000000000000000000;
+    try zoro.push(&max);
+    var counter: usize = 1;
     while (zoro.status() == .SUSPENDED) {
         try zoro.restart(); //resume
 
-        var ret: c_ulong = 0;
-        try zoro.pop(@ptrCast(?*anyopaque, &ret), @sizeOf(c_ulong));
-        _ = std.log.info("fib {} = {}\n", .{counter, ret});
+        var ret: u64 = 0;
+        try zoro.pop(&ret);
+        std.log.info("fib {} = {}", .{counter, ret});
         counter += 1;
     }
-    std.log.info("zoro {}", .{zoro});
     zoro.destroy();
 }
