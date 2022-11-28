@@ -5,7 +5,7 @@ pub fn build(b: *std.build.Builder) void {
 
     const zoroPkg = std.build.Pkg{ .name = "zoro", .source = std.build.FileSource{ .path = "src/zoro.zig" }};
 
-    const exe = b.addExecutable("zoro", "examples/triangle.zig");
+    const exe = b.addExecutable("zoro", "examples/fibonacci.zig");
     exe.setBuildMode(mode);
     exe.linkLibC();
     exe.addPackage(zoroPkg);

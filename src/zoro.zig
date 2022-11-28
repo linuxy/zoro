@@ -25,9 +25,8 @@ pub const ContextBuffer = struct {
     r15: ?*const anyopaque,
 };
 
-pub fn _zoro_main(zoro: *Zoro) !void {
-    std.log.info("zoro: {}", .{zoro});
-    try zoro.func.?(zoro);
+pub fn _zoro_main(zoro: *Zoro) callconv(.C) void {
+    _ = zoro.func.?(zoro) catch null;
     zoro.state = .DONE;
     _zoro_jumpout(zoro);
 }
@@ -47,7 +46,6 @@ pub fn _zoro_jumpin(zoro: *Zoro) void {
     var context = @ptrCast(*Context, @alignCast(@alignOf(Context), zoro.context));
     _zoro_prepare_jumpin(zoro);
     _ = _zoro_switch(&context.back_ctx, &context.ctx);
-    std.log.info("here", .{});
 }
 
 pub inline fn _zoro_prepare_jumpout(zoro: *Zoro) void {
@@ -160,8 +158,6 @@ pub const Zoro = struct {
         desc.magic_number = ZORO_MAGIC_NUMBER;
         desc.storage_size = ZORO_DEFAULT_STORAGE_SIZE;
 
-        //BUG: Feeding the wrong context to assembly wrap_main
-        std.log.info("arg zoro: {}", .{desc});
         return desc;
     }
 
@@ -187,13 +183,13 @@ pub const Zoro = struct {
         if(len > 0) {
             var local_bytes: usize = self.bytes_stored +% len;
  
-            //std.log.info("push: {} {}", .{local_bytes, self.storage_size});
             if(local_bytes > self.storage_size)
                 return error.ZoroPushNotEnoughSpace;
 
             if(src == null)
                 return error.ZoroPushInvalidPointer;
 
+            std.log.info("len : {}", .{len});
             _ = memcpy(@ptrCast(?*anyopaque, &self.storage[self.bytes_stored]), src, len);
             self.bytes_stored = local_bytes;
         }
@@ -206,8 +202,10 @@ pub const Zoro = struct {
 
             var local_bytes: usize = self.bytes_stored -% len;
 
-            if(dest != null)
+            if(dest != null) {
                 _ = memcpy(dest, @ptrCast(?*const anyopaque, &self.storage[local_bytes -% len]), len);
+                std.log.info("poppin {}", .{len});
+            }
 
             self.bytes_stored = local_bytes;
         }
