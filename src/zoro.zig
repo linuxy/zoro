@@ -31,14 +31,60 @@ pub const ContextBuffer = struct {
     r15: ?*const anyopaque,
 };
 
+pub fn _zoro_wrap_main() void {
+
+}
+
+pub fn _zoro_main(zoro: *Zoro) void {
+    zoro.func.?(zoro);
+    zoro.state = .DONE;
+    _zoro_jumpout(zoro);
+}
+
+pub fn _zoro_jumpin(zoro: *Zoro) void {
+    _ = zoro;
+}
+
+pub fn _zoro_jumpout(zoro: *Zoro) void {
+    _ = zoro;
+}
+
 pub const Context = struct {
     valgrind_stack_id: u32,
     ctx: ContextBuffer,
     back_ctx: ContextBuffer,
+
+    pub fn create(zoro: *Zoro) *Context {
+        var zoro_addr: usize = zoro.size;
+        var context_addr: usize = zoro_align_foward(zoro_addr + @sizeOf(Zoro), 16);
+        var storage_addr: usize = zoro_align_foward(context_addr + @sizeOf(Context), 16);
+        var stack_addr: usize = zoro_align_foward(storage_addr + zoro.storage_size, 16);
+
+        var ctx_buf = std.mem.zeroes(ContextBuffer);
+        var storage = std.mem.zeroes([]u8);
+        zoro.storage = &storage;
+
+        var stack_base = @intToPtr(?*anyopaque, stack_addr);
+        //var stack_size = zoro.stack_size - 32; //Reserve 32 bytes for shadow space
+        var stack_size = zoro.stack_size -% @bitCast(c_ulong, @as(c_long, @as(c_int, 128)));
+        //Make context
+
+        //segfault
+        var stack_high_ptr: [*c]?*anyopaque = @intToPtr([*c]?*anyopaque, (@intCast(usize, @ptrToInt(stack_base)) +% stack_size) -% @sizeOf(usize));
+
+        stack_high_ptr[@intCast(c_uint, @as(c_int, 0))] = @intToPtr(?*anyopaque, @as(c_ulong, 16045725885737590445));
+        ctx_buf.rip = @ptrCast(?*const anyopaque, &_zoro_wrap_main);
+        ctx_buf.rsp = @ptrCast(?*const anyopaque, stack_high_ptr);
+        ctx_buf.r12 = @ptrCast(?*const anyopaque, &_zoro_main);
+        ctx_buf.r13 = @ptrCast(?*const anyopaque, zoro);
+
+        //
+        return &Context{.ctx = ctx_buf, .back_ctx = ctx_buf, .valgrind_stack_id = 0};
+    }
 };
 
 pub const Zoro = struct {
-    context: ?*anyopaque,
+    context: ?*Context,
     state: zoro_state,
     func: ?*const fn(*Zoro) void,
     prev: ?*Zoro,
@@ -78,6 +124,9 @@ pub const Zoro = struct {
                     desc.stack_size + 16;
 
         try validate_desc(&desc);
+        desc.context = Context.create(&desc);
+        desc.state = .SUSPENDED;
+        desc.magic_number = ZORO_MAGIC_NUMBER;
         return desc;
     }
 
