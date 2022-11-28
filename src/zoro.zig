@@ -19,6 +19,24 @@ const zoro_result = enum {
     //...
 };
 
+//Not win32
+pub const ContextBuffer = struct {
+    rip: ?*const anyopaque,
+    rsp: ?*const anyopaque,
+    rbp: ?*const anyopaque,
+    rbx: ?*const anyopaque,
+    r12: ?*const anyopaque,
+    r13: ?*const anyopaque,
+    r14: ?*const anyopaque,
+    r15: ?*const anyopaque,
+};
+
+pub const Context = struct {
+    valgrind_stack_id: u32,
+    ctx: ContextBuffer,
+    back_ctx: ContextBuffer,
+};
+
 pub const Zoro = struct {
     context: ?*anyopaque,
     state: zoro_state,
@@ -35,17 +53,40 @@ pub const Zoro = struct {
     tsan_prev_stack: ?*anyopaque,
     tsan_fiber: ?*anyopaque,
     magic_number: usize,
+    size: usize,
+
+    pub fn bytes_stored(self: *Zoro) void {
+        _ = self;
+    }
 
     pub fn create(func: anytype, stack_size: usize) !Zoro {
         var desc = std.mem.zeroes(Zoro);
+
+        if(stack_size != 0) {
+            if(stack_size < ZORO_MIN_STACK_SIZE) {
+                desc.stack_size = ZORO_MIN_STACK_SIZE;
+            }
+        } else {
+            desc.stack_size = ZORO_DEFAULT_STACK_SIZE;
+        }
+
+        desc.stack_size = zoro_align_foward(desc.stack_size, 16);
         desc.func = func;
-        desc.stack_size = stack_size;
+        desc.size = zoro_align_foward(@sizeOf(Zoro), 16) +
+                    zoro_align_foward(@sizeOf(Context), 16) +
+                    zoro_align_foward(desc.storage_size, 16) +
+                    desc.stack_size + 16;
+
         try validate_desc(&desc);
         return desc;
     }
 
     pub fn destroy(self: *Zoro) void {
         _ = self;
+    }
+
+    pub fn peek() void {
+
     }
 
     pub fn push() void {
@@ -69,11 +110,22 @@ pub const Zoro = struct {
 
     }
 
+    pub fn storage_size() void {
+    }
+
     pub fn validate_desc(self: *Zoro) !void {
-        _ = self;
+        if(self.size < ZORO_MIN_STACK_SIZE)
+            return error.ZoroStackTooSmall;
+
+        if(self.stack_size < @sizeOf(Zoro))
+            return error.ZoroSizeInvalid;
     }
 
     pub fn yield(self: *Zoro) void {
         @call(.{}, self.func.?, .{self});
     }
 };
+
+pub fn zoro_align_foward(addr: usize, aligns: usize) usize {
+    return (addr + (aligns - 1)) & ~(aligns - 1);
+}
