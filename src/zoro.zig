@@ -73,8 +73,42 @@ pub extern fn _zoro_switch(from: *ContextBuffer, to: *ContextBuffer) u32;
 comptime {
     if (builtin.os.tag == .linux)
         if(builtin.cpu.arch == .x86_64) {
-            asm (".text\n.globl _zoro_wrap_main\n.type _zoro_wrap_main, %function\n.hidden _zoro_wrap_main\n_zoro_wrap_main:\n  movq %r13, %rdi\n  jmpq *%r12\n.size _zoro_wrap_main, .-_zoro_wrap_main\n");
-            asm (".text\n.globl _zoro_switch\n.type _zoro_switch, %function\n.hidden _zoro_switch\n_zoro_switch:\n  leaq 0x3d(%rip), %rax\n  movq %rax, (%rdi)\n  movq %rsp, 8(%rdi)\n  movq %rbp, 16(%rdi)\n  movq %rbx, 24(%rdi)\n  movq %r12, 32(%rdi)\n  movq %r13, 40(%rdi)\n  movq %r14, 48(%rdi)\n  movq %r15, 56(%rdi)\n  movq 56(%rsi), %r15\n  movq 48(%rsi), %r14\n  movq 40(%rsi), %r13\n  movq 32(%rsi), %r12\n  movq 24(%rsi), %rbx\n  movq 16(%rsi), %rbp\n  movq 8(%rsi), %rsp\n  jmpq *(%rsi)\n  ret\n.size _zoro_switch, .-_zoro_switch\n");
+            asm (
+                \\.text
+                \\.globl _zoro_wrap_main
+                \\.type _zoro_wrap_main, %function
+                \\.hidden _zoro_wrap_main
+                \\_zoro_wrap_main:
+                \\  movq %r13, %rdi
+                \\  jmpq *%r12
+                \\.size _zoro_wrap_main, .-_zoro_wrap_main
+                );
+            asm (
+                \\.text
+                \\.globl _zoro_switch
+                \\.type _zoro_switch, %function
+                \\.hidden _zoro_switch
+                \\_zoro_switch:
+                \\  leaq 0x3d(%rip), %rax
+                \\  movq %rax, (%rdi)
+                \\  movq %rsp, 8(%rdi)
+                \\  movq %rbp, 16(%rdi)
+                \\  movq %rbx, 24(%rdi)
+                \\  movq %r12, 32(%rdi)
+                \\  movq %r13, 40(%rdi)
+                \\  movq %r14, 48(%rdi)
+                \\  movq %r15, 56(%rdi)
+                \\  movq 56(%rsi), %r15
+                \\  movq 48(%rsi), %r14
+                \\  movq 40(%rsi), %r13
+                \\  movq 32(%rsi), %r12
+                \\  movq 24(%rsi), %rbx
+                \\  movq 16(%rsi), %rbp
+                \\  movq 8(%rsi), %rsp
+                \\  jmpq *(%rsi)
+                \\  ret
+                \\.size _zoro_switch, .-_zoro_switch
+                );
         } else {
             @compileLog("Unsupported CPU architecture.");
     } else {
@@ -102,7 +136,7 @@ pub const Context = struct {
 
         //Make context
         var stack_high_ptr: [*c]?*anyopaque = @intToPtr(*?*anyopaque, (@intCast(usize, @ptrToInt(stack_base)) +% stack_size) -% @sizeOf(usize));
-        stack_high_ptr[0] = @intToPtr(?*anyopaque, std.math.maxInt(c_ulong));
+        stack_high_ptr[0] = @intToPtr(?*anyopaque, std.math.maxInt(usize));
         ctx_buf.rip = @ptrCast(?*const anyopaque, &_zoro_wrap_main);
         ctx_buf.rsp = @ptrCast(?*const anyopaque, stack_high_ptr);
         ctx_buf.r12 = @ptrCast(?*const anyopaque, &_zoro_main);
