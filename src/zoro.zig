@@ -96,7 +96,7 @@ pub const Context = struct {
 
         //Make context
         var stack_high_ptr: [*c]?*anyopaque = @intToPtr(*?*anyopaque, (@intCast(usize, @ptrToInt(stack_base)) +% stack_size) -% @sizeOf(usize));
-        stack_high_ptr[@intCast(c_uint, @as(c_int, 0))] = @intToPtr(?*anyopaque, std.math.maxInt(c_ulong));
+        stack_high_ptr[0] = @intToPtr(?*anyopaque, std.math.maxInt(c_ulong));
         ctx_buf.rip = @ptrCast(?*const anyopaque, &_zoro_wrap_main);
         ctx_buf.rsp = @ptrCast(?*const anyopaque, stack_high_ptr);
         ctx_buf.r12 = @ptrCast(?*const anyopaque, &_zoro_main);
@@ -126,8 +126,8 @@ pub const Zoro = struct {
     magic_number: usize,
     size: usize,
 
-    pub fn bytes_stored(self: *Zoro) void {
-        _ = self;
+    pub fn bytes_stored(self: *Zoro) usize {
+        return self.bytes_stored;
     }
 
     pub fn create(func: anytype, stack_size: usize) !*Zoro {
