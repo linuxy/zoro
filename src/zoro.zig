@@ -128,14 +128,14 @@ pub const Context = struct {
         var stack_addr: usize = zoro_align_foward(storage_addr + zoro.storage_size, 16);
 
         var ctx_buf = std.mem.zeroes(ContextBuffer);
-        var storage = @intToPtr([*c]u8, storage_addr);
+        var storage = @intToPtr([*]u8, storage_addr);
         zoro.storage = storage;
 
         var stack_base = @intToPtr(?*anyopaque, stack_addr);
         var stack_size = zoro.stack_size - 32; //Reserve 32 bytes for shadow space
 
         //Make context
-        var stack_high_ptr: [*c]?*anyopaque = @intToPtr(*?*anyopaque, (@intCast(usize, @ptrToInt(stack_base)) +% stack_size) -% @sizeOf(usize));
+        var stack_high_ptr: [*]?*anyopaque = @intToPtr([*]?*anyopaque, (@intCast(usize, @ptrToInt(stack_base)) +% stack_size) -% @sizeOf(usize));
         stack_high_ptr[0] = @intToPtr(?*anyopaque, std.math.maxInt(usize));
         ctx_buf.rip = @ptrCast(?*const anyopaque, &_zoro_wrap_main);
         ctx_buf.rsp = @ptrCast(?*const anyopaque, stack_high_ptr);
@@ -157,7 +157,7 @@ pub const Zoro = struct {
     free_cb: ?*anyopaque,
     stack_base: ?*anyopaque,
     stack_size: usize,
-    storage: [*c]u8,
+    storage: ?[*]u8,
     bytes_stored: usize,
     storage_size: usize,
     asan_prev_stack: ?*anyopaque,
@@ -213,7 +213,7 @@ pub const Zoro = struct {
 
             var local_bytes: usize = self.bytes_stored -% len;
 
-            @memcpy(@ptrCast([*]u8, dest), @ptrCast([*]const u8, self.storage[local_bytes..self.bytes_stored]), len);
+            @memcpy(@ptrCast([*]u8, dest), @ptrCast([*]const u8, self.storage.?[local_bytes..self.bytes_stored]), len);
         }
     }
 
@@ -225,7 +225,7 @@ pub const Zoro = struct {
             if(local_bytes > self.storage_size)
                 return error.ZoroPushNotEnoughSpace;
 
-            @memcpy(@ptrCast([*]u8, self.storage[local_bytes-len..local_bytes]), @ptrCast([*c]const u8, src), len);
+            @memcpy(@ptrCast([*]u8, self.storage.?[local_bytes-len..local_bytes]), @ptrCast([*]const u8, src), len);
             self.bytes_stored = local_bytes;
         }
     }
@@ -238,7 +238,7 @@ pub const Zoro = struct {
 
             var local_bytes: usize = self.bytes_stored -% len;
 
-            @memcpy(@ptrCast([*]u8, dest), @ptrCast([*]const u8, self.storage[local_bytes..self.bytes_stored]), len);
+            @memcpy(@ptrCast([*]u8, dest), @ptrCast([*]const u8, self.storage.?[local_bytes..self.bytes_stored]), len);
 
             self.bytes_stored = local_bytes;
         }
@@ -299,7 +299,7 @@ pub inline fn zoro_align_foward(addr: usize, aligns: usize) usize {
 test "stack push, pop, and peek" {
     var zoro = try Zoro.create(test_pppy, 0);
     defer zoro.destroy();
-    
+
     var n: u32 = 2;
     var m: u32 = 3;
     var z: u32 = 4;
