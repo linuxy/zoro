@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const ZORO_DEFAULT_STORAGE_SIZE = 1024;
 const ZORO_MIN_STACK_SIZE = 32768;
 const ZORO_DEFAULT_STACK_SIZE = 57344;
-const ZORO_MAGIC_NUMBER = 0x7E3CB1A9;
+const ZORO_MAGIC_NUMBER = 0xDEADB33F;
 
 const allocator = std.heap.c_allocator;
 
@@ -280,7 +280,7 @@ pub const Zoro = struct {
     }
 
     pub fn yield(self: *Zoro) !void {
-        if (self.magic_number != 2117906857)
+        if (self.magic_number != ZORO_MAGIC_NUMBER)
             return error.ZoroStackOverflow;
 
         if (self.state != .RUNNING)
