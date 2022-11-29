@@ -26,7 +26,7 @@ pub const ContextBuffer = struct {
     r15: ?*const anyopaque,
 };
 
-pub fn _zoro_main(zoro: *Zoro) callconv(.C) void {
+pub fn _zoro_main(zoro: *Zoro) void {
     _ = zoro.func.?(zoro) catch null;
     zoro.state = .DONE;
     _zoro_jumpout(zoro);
@@ -63,7 +63,7 @@ pub fn _zoro_jumpout(zoro: *Zoro) void {
     _ = _zoro_switch(&context.ctx, &context.back_ctx);
 }
 
-pub fn _zoro_running() callconv(.C) ?*Zoro {
+pub fn _zoro_running() ?*Zoro {
     return current_zoro;
 }
 
@@ -246,7 +246,7 @@ pub const Zoro = struct {
 
     pub fn running(self: *Zoro) ?*Zoro {
         _ = self;
-        var func: ?*const fn () callconv(.C) ?*Zoro = &_zoro_running;
+        var func: ?*const fn () ?*Zoro = &_zoro_running;
         return func.?();
     }
 
