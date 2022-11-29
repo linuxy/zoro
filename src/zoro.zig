@@ -72,21 +72,14 @@ pub extern fn _zoro_switch(from: *ContextBuffer, to: *ContextBuffer) u32;
 
 comptime {
     if (builtin.os.tag == .linux)
-        if(builtin.cpu.arch == .x86_64)
-            asm (".text\n.globl _zoro_wrap_main\n.type _zoro_wrap_main, %function\n.hidden _zoro_wrap_main\n_zoro_wrap_main:\n  movq %r13, %rdi\n  jmpq *%r12\n.size _zoro_wrap_main, .-_zoro_wrap_main\n")
-        else
-        @compileLog("Unsupported CPU architecture.")
-    else
+        if(builtin.cpu.arch == .x86_64) {
+            asm (".text\n.globl _zoro_wrap_main\n.type _zoro_wrap_main, %function\n.hidden _zoro_wrap_main\n_zoro_wrap_main:\n  movq %r13, %rdi\n  jmpq *%r12\n.size _zoro_wrap_main, .-_zoro_wrap_main\n");
+            asm (".text\n.globl _zoro_switch\n.type _zoro_switch, %function\n.hidden _zoro_switch\n_zoro_switch:\n  leaq 0x3d(%rip), %rax\n  movq %rax, (%rdi)\n  movq %rsp, 8(%rdi)\n  movq %rbp, 16(%rdi)\n  movq %rbx, 24(%rdi)\n  movq %r12, 32(%rdi)\n  movq %r13, 40(%rdi)\n  movq %r14, 48(%rdi)\n  movq %r15, 56(%rdi)\n  movq 56(%rsi), %r15\n  movq 48(%rsi), %r14\n  movq 40(%rsi), %r13\n  movq 32(%rsi), %r12\n  movq 24(%rsi), %rbx\n  movq 16(%rsi), %rbp\n  movq 8(%rsi), %rsp\n  jmpq *(%rsi)\n  ret\n.size _zoro_switch, .-_zoro_switch\n");
+        } else {
+            @compileLog("Unsupported CPU architecture.");
+    } else {
         @compileLog("Unsupported OS.");
-}
-comptime {
-    if (builtin.os.tag == .linux)
-        if(builtin.cpu.arch == .x86_64)
-            asm (".text\n.globl _zoro_switch\n.type _zoro_switch, %function\n.hidden _zoro_switch\n_zoro_switch:\n  leaq 0x3d(%rip), %rax\n  movq %rax, (%rdi)\n  movq %rsp, 8(%rdi)\n  movq %rbp, 16(%rdi)\n  movq %rbx, 24(%rdi)\n  movq %r12, 32(%rdi)\n  movq %r13, 40(%rdi)\n  movq %r14, 48(%rdi)\n  movq %r15, 56(%rdi)\n  movq 56(%rsi), %r15\n  movq 48(%rsi), %r14\n  movq 40(%rsi), %r13\n  movq 32(%rsi), %r12\n  movq 24(%rsi), %rbx\n  movq 16(%rsi), %rbp\n  movq 8(%rsi), %rsp\n  jmpq *(%rsi)\n  ret\n.size _zoro_switch, .-_zoro_switch\n")
-        else
-        @compileLog("Unsupported CPU architecture.")
-    else
-        @compileLog("Unsupported OS.");
+    }
 }
 
 pub const Context = struct {
