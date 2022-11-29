@@ -205,15 +205,15 @@ pub const Zoro = struct {
         allocator.destroy(self);
     }
 
-    pub fn peek(self: *Zoro, dest: ?*anyopaque, len: usize) !void {
+    pub fn peek(self: *Zoro, dest: anytype) !void {
+        const len = @sizeOf(@TypeOf(dest));
         if(len > 0) {
             if(len > self.bytes_stored)
                 return error.ZoroNotEnoughSpace;
 
-            if(dest != null)
-                return error.ZoroPeekInvalidPointer;
+            var local_bytes: usize = self.bytes_stored -% len;
 
-            @memcpy(@ptrCast([*]u8, dest), self.storage, len);
+            @memcpy(@ptrCast([*]u8, dest), @ptrCast([*]const u8, self.storage[local_bytes..self.bytes_stored]), len);
         }
     }
 
@@ -225,7 +225,7 @@ pub const Zoro = struct {
             if(local_bytes > self.storage_size)
                 return error.ZoroPushNotEnoughSpace;
 
-            @memcpy(@ptrCast([*]u8, self.storage), @ptrCast([*c]const u8, src), len);
+            @memcpy(@ptrCast([*]u8, self.storage[local_bytes-len..local_bytes]), @ptrCast([*c]const u8, src), len);
             self.bytes_stored = local_bytes;
         }
     }
@@ -238,7 +238,7 @@ pub const Zoro = struct {
 
             var local_bytes: usize = self.bytes_stored -% len;
 
-            @memcpy(@ptrCast([*]u8, dest), self.storage, len);
+            @memcpy(@ptrCast([*]u8, dest), @ptrCast([*]const u8, self.storage[local_bytes..self.bytes_stored]), len);
 
             self.bytes_stored = local_bytes;
         }
@@ -293,4 +293,35 @@ pub const Zoro = struct {
 
 pub inline fn zoro_align_foward(addr: usize, aligns: usize) usize {
     return (addr + (aligns - 1)) & ~(aligns - 1);
+}
+
+//Tests
+test "stack push, pop, and peek" {
+    var zoro = try Zoro.create(test_pppy, 0);
+    defer zoro.destroy();
+    
+    var n: u32 = 2;
+    var m: u32 = 3;
+    var z: u32 = 4;
+
+    try zoro.push(&m);
+    try zoro.push(&n);
+    try zoro.push(&z);
+
+    while (zoro.status() == .SUSPENDED) {
+        try zoro.restart();
+    }
+}
+
+pub fn test_pppy(zoro: *Zoro) !void {
+    var m: u32 = undefined;
+    var n: u32 = undefined;
+    var z: u32 = undefined;
+
+    try zoro.pop(&m);
+    try zoro.pop(&n);
+    try zoro.peek(&z);
+
+    try zoro.yield();
+    std.debug.assert(m == 4 and n == 2 and z == 3);
 }

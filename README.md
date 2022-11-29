@@ -32,6 +32,7 @@ pub fn fibonacci(zoro: *Zoro) !void {
 
 pub fn main() !void {
     var zoro = try Zoro.create(fibonacci, 0);
+    defer zoro.destroy();
 
     var max: u64 = 10000000000000000000;
     try zoro.push(&max);
@@ -44,7 +45,6 @@ pub fn main() !void {
         std.log.info("fib {} = {}", .{counter, ret});
         counter += 1;
     }
-    zoro.destroy();
 }
 ```
 *UB*
