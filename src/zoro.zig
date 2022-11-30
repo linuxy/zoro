@@ -71,8 +71,49 @@ const LinuxX64Impl = struct {
     };
 };
 
-const MacAA64Impl = struct {};
-const MacX64Impl = struct {};
+const MacAA64Impl = struct {
+    pub const ContextBuffer = struct {
+        x: [12]?*const anyopaque,
+        sp: ?*const anyopaque,
+        lr: ?*const anyopaque,
+        d: [8]?*const anyopaque,
+    };
+
+    pub const Context = struct {
+        valgrind_stack_id: u32,
+        ctx: ContextBuffer,
+        back_ctx: ContextBuffer,
+
+        pub fn create(zoro: *Zoro) !Context {
+            var zoro_addr: usize = @intCast(usize, @ptrToInt(zoro));
+            var context_addr: usize = zoro_align_foward(zoro_addr + @sizeOf(Zoro), 16);
+            var storage_addr: usize = zoro_align_foward(context_addr + @sizeOf(Context), 16);
+            var stack_addr: usize = zoro_align_foward(storage_addr + zoro.storage_size, 16);
+
+            var ctx_buf = std.mem.zeroes(ContextBuffer);
+            var storage = @intToPtr([*]u8, storage_addr);
+            zoro.storage = storage;
+
+            var stack_base = @intToPtr(?*anyopaque, stack_addr);
+            var stack_size = zoro.stack_size - 32; //Reserve 32 bytes for shadow space
+
+            //Make context
+            var stack_top = @intToPtr(?*anyopaque, @ptrToInt(stack_base) + stack_size);
+            ctx_buf.lr = @ptrCast(?*const anyopaque, &_zoro_wrap_main);
+            ctx_buf.sp = stack_top;
+            ctx_buf.x[2] = @intToPtr(?*anyopaque, 0xdeaddeaddeaddead);
+            ctx_buf.x[1] = @ptrCast(?*const anyopaque, &_zoro_main);
+            ctx_buf.x[0] = @ptrCast(?*const anyopaque, zoro);
+
+            zoro.stack_base = stack_base;
+
+            return Context{.ctx = ctx_buf, .back_ctx = undefined, .valgrind_stack_id = 0};
+        }
+    };
+};
+
+const MacX64Impl = LinuxX64Impl;
+
 const WindowsX64Impl = struct {
     pub const ContextBuffer = struct {
         rip: ?*const anyopaque,
@@ -107,6 +148,7 @@ const WindowsX64Impl = struct {
             var stack_size = zoro.stack_size - 32; //Reserve 32 bytes for shadow space
 
             //Make context
+            //Segfaults
             var stack_high_ptr: [*]?*anyopaque = @intToPtr([*]?*anyopaque, (@intCast(usize, @ptrToInt(stack_base)) +% stack_size) -% @sizeOf(usize));
             stack_high_ptr[0] = @intToPtr(?*anyopaque, 0xdeaddeaddeaddead);
             ctx_buf.rip = @ptrCast(?*const anyopaque, &_zoro_wrap_main);
