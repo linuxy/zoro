@@ -58,7 +58,7 @@ const LinuxX64Impl = struct {
 
             //Make context
             var stack_high_ptr: [*]?*anyopaque = @intToPtr([*]?*anyopaque, (@intCast(usize, @ptrToInt(stack_base)) +% stack_size) -% @sizeOf(usize));
-            stack_high_ptr[0] = @intToPtr(?*anyopaque, std.math.maxInt(usize));
+            stack_high_ptr[0] = @intToPtr(?*anyopaque, 0xdeaddeaddeaddead);
             ctx_buf.rip = @ptrCast(?*const anyopaque, &_zoro_wrap_main);
             ctx_buf.rsp = @ptrCast(?*const anyopaque, stack_high_ptr);
             ctx_buf.r12 = @ptrCast(?*const anyopaque, &_zoro_main);
@@ -113,8 +113,8 @@ const WindowsX64Impl = struct {
             ctx_buf.rsp = @ptrCast(?*const anyopaque, stack_high_ptr);
             ctx_buf.r12 = @ptrCast(?*const anyopaque, &_zoro_main);
             ctx_buf.r13 = @ptrCast(?*const anyopaque, zoro);
-
-            zoro.stack_base = stack_base;
+            var stack_top = @intToPtr(?*anyopaque, @ptrToInt(stack_base) + stack_size);
+            zoro.stack_base = stack_top;
 
             return Context{.ctx = ctx_buf, .back_ctx = undefined, .valgrind_stack_id = 0};
         }
