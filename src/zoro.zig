@@ -54,7 +54,7 @@ const LinuxX64Impl = struct {
             zoro.storage = storage;
 
             var stack_base = @intToPtr(?*anyopaque, stack_addr);
-            var stack_size = zoro.stack_size - 32; //Reserve 32 bytes for shadow space
+            var stack_size = zoro.stack_size - 128; //Reserve 128 bytes for shadow space
 
             //Make context
             var stack_high_ptr: [*]?*anyopaque = @intToPtr([*]?*anyopaque, (@intCast(usize, @ptrToInt(stack_base)) +% stack_size) -% @sizeOf(usize));
@@ -95,10 +95,9 @@ const MacAA64Impl = struct {
             zoro.storage = storage;
 
             var stack_base = @intToPtr(?*anyopaque, stack_addr);
-            var stack_size = zoro.stack_size - 32; //Reserve 32 bytes for shadow space
 
             //Make context
-            var stack_top = @intToPtr(?*anyopaque, @ptrToInt(stack_base) + stack_size);
+            var stack_top = @intToPtr(?*anyopaque, @ptrToInt(stack_base) + zoro.stack_size);
             ctx_buf.lr = @ptrCast(?*const anyopaque, &_zoro_wrap_main);
             ctx_buf.sp = stack_top;
             ctx_buf.x[2] = @intToPtr(?*anyopaque, 0xdeaddeaddeaddead);
