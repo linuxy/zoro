@@ -8,6 +8,17 @@ const ZORO_MAGIC_NUMBER = 0xDEADB33F;
 
 const allocator = std.heap.c_allocator;
 
+const Impl = if(builtin.os.tag == .linux and builtin.cpu.arch == .x86_64)
+    LinuxX64Impl
+else if(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)
+    MacAA64Impl
+else if(builtin.os.tag == .macos and builtin.cpu.arch == .x86_64)
+    MacX64Impl
+else if(builtin.os.tag == .windows and builtin.cpu.arch == .x86_64)
+    WindowsX64Impl
+else
+    UnsupportedImpl;
+
 const ZoroState = enum {
     DONE,
     ACTIVE,
@@ -15,16 +26,55 @@ const ZoroState = enum {
     SUSPENDED,
 };
 
-pub const ContextBuffer = struct {
-    rip: ?*const anyopaque,
-    rsp: ?*const anyopaque,
-    rbp: ?*const anyopaque,
-    rbx: ?*const anyopaque,
-    r12: ?*const anyopaque,
-    r13: ?*const anyopaque,
-    r14: ?*const anyopaque,
-    r15: ?*const anyopaque,
+const LinuxX64Impl = struct {
+    pub const ContextBuffer = struct {
+        rip: ?*const anyopaque,
+        rsp: ?*const anyopaque,
+        rbp: ?*const anyopaque,
+        rbx: ?*const anyopaque,
+        r12: ?*const anyopaque,
+        r13: ?*const anyopaque,
+        r14: ?*const anyopaque,
+        r15: ?*const anyopaque,
+    };
+
+    pub const Context = struct {
+        valgrind_stack_id: u32,
+        ctx: ContextBuffer,
+        back_ctx: ContextBuffer,
+
+        pub fn create(zoro: *Zoro) !Context {
+            var zoro_addr: usize = @intCast(usize, @ptrToInt(zoro));
+            var context_addr: usize = zoro_align_foward(zoro_addr + @sizeOf(Zoro), 16);
+            var storage_addr: usize = zoro_align_foward(context_addr + @sizeOf(Context), 16);
+            var stack_addr: usize = zoro_align_foward(storage_addr + zoro.storage_size, 16);
+
+            var ctx_buf = std.mem.zeroes(ContextBuffer);
+            var storage = @intToPtr([*]u8, storage_addr);
+            zoro.storage = storage;
+
+            var stack_base = @intToPtr(?*anyopaque, stack_addr);
+            var stack_size = zoro.stack_size - 32; //Reserve 32 bytes for shadow space
+
+            //Make context
+            var stack_high_ptr: [*]?*anyopaque = @intToPtr([*]?*anyopaque, (@intCast(usize, @ptrToInt(stack_base)) +% stack_size) -% @sizeOf(usize));
+            stack_high_ptr[0] = @intToPtr(?*anyopaque, std.math.maxInt(usize));
+            ctx_buf.rip = @ptrCast(?*const anyopaque, &_zoro_wrap_main);
+            ctx_buf.rsp = @ptrCast(?*const anyopaque, stack_high_ptr);
+            ctx_buf.r12 = @ptrCast(?*const anyopaque, &_zoro_main);
+            ctx_buf.r13 = @ptrCast(?*const anyopaque, zoro);
+
+            zoro.stack_base = stack_base;
+
+            return Context{.ctx = ctx_buf, .back_ctx = undefined, .valgrind_stack_id = 0};
+        }
+    };
 };
+
+const MacAA64Impl = struct {};
+const MacX64Impl = struct {};
+const WindowsX64Impl = struct {};
+const UnsupportedImpl = struct {};
 
 pub fn _zoro_main(zoro: *Zoro) void {
     _ = zoro.func.?(zoro) catch null;
@@ -44,7 +94,7 @@ pub inline fn _zoro_prepare_jumpin(zoro: *Zoro) void {
 }
 
 pub fn _zoro_jumpin(zoro: *Zoro) void {
-    var context = @ptrCast(*Context, @alignCast(@alignOf(Context), zoro.context));
+    var context = @ptrCast(*Impl.Context, @alignCast(@alignOf(Impl.Context), zoro.context));
     _zoro_prepare_jumpin(zoro);
     _ = _zoro_switch(&context.back_ctx, &context.ctx);
 }
@@ -58,7 +108,7 @@ pub inline fn _zoro_prepare_jumpout(zoro: *Zoro) void {
 }
 
 pub fn _zoro_jumpout(zoro: *Zoro) void {
-    var context = @ptrCast(*Context, @alignCast(@alignOf(Context), zoro.context));
+    var context = @ptrCast(*Impl.Context, @alignCast(@alignOf(Impl.Context), zoro.context));
     _zoro_prepare_jumpout(zoro);
     _ = _zoro_switch(&context.ctx, &context.back_ctx);
 }
@@ -68,7 +118,7 @@ pub fn _zoro_running() ?*Zoro {
 }
 
 pub extern fn _zoro_wrap_main() void;
-pub extern fn _zoro_switch(from: *ContextBuffer, to: *ContextBuffer) u32;
+pub extern fn _zoro_switch(from: *Impl.ContextBuffer, to: *Impl.ContextBuffer) u32;
 
 comptime {
     if (builtin.os.tag == .linux) {
@@ -193,11 +243,75 @@ comptime {
                 \\.text
                 \\.globl _zoro_wrap_main
                 \\_zoro_wrap_main:
+                \\  mov %r13,%rcx
+                \\  jmpq *%r12
+                \\  retq
+                \\  nop
                 );
             asm (
                 \\.text
                 \\.globl _zoro_switch
                 \\_zoro_switch:
+                \\  lea    0x152(%rip),%rax
+                \\  mov    %rax,(%rcx)
+                \\  mov    %rsp,0x8(%rcx)
+                \\  mov    %rbp,0x10(%rcx)
+                \\  mov    %rbx,0x18(%rcx)
+                \\  mov    %r12,0x20(%rcx)
+                \\  mov    %r13,0x28(%rcx)
+                \\  mov    %r14,0x30(%rcx)
+                \\  mov    %r15,0x38(%rcx)
+                \\  mov    %rdi,0x40(%rcx)
+                \\  mov    %rsi,0x48(%rcx)
+                \\  movq   %xmm6,0x50(%rcx)
+                \\  movq   %xmm7,0x60(%rcx)
+                \\  movq   %xmm8,0x70(%rcx)
+                \\  movq   %xmm9,0x80(%rcx)
+                \\  movq   %xmm10,0x90(%rcx)
+                \\  movq   %xmm11,0xa0(%rcx)
+                \\  movq   %xmm12,0xb0(%rcx)
+                \\  movq   %xmm13,0xc0(%rcx)
+                \\  movq   %xmm14,0xd0(%rcx)
+                \\  movq   %xmm15,0xe0(%rcx)
+                \\  mov    %gs:0x30,%r10
+                \\  mov    (%r10),%rax
+                \\  mov    %rax,0xf0(%rcx)
+                \\  mov    (%r10),%rax
+                \\  mov    %rax,0xf8(%rcx)
+                \\  mov    0x10(%r10),%rax
+                \\  mov    %rax,0x100(%rcx)
+                \\  mov    0x8(%r10),%rax
+                \\  mov    %rax,0x108(%rcx)
+                \\  mov    0x108(%rdx),%rax
+                \\  mov    %rax,0x8(%r10)
+                \\  mov    0x100(%rdx),%rax
+                \\  mov    %rax,0x10(%r10)
+                \\  mov    0xf8(%rdx),%rax
+                \\  mov    %rax,0x1478(%r10)
+                \\  mov    0xf0(%rdx),%rax
+                \\  mov    %rax,0x20(%r10)
+                \\  movq   0xe0(%rdx),%xmm15
+                \\  movq   0xd0(%rdx),%xmm14
+                \\  movq   0xc0(%rdx),%xmm13
+                \\  movq   0xb0(%rdx),%xmm12
+                \\  movq   0xa0(%rdx),%xmm11
+                \\  movq   0x90(%rdx),%xmm10
+                \\  movq   0x80(%rdx),%xmm9
+                \\  movq   0x70(%rdx),%xmm8
+                \\  movq   0x60(%rdx),%xmm7
+                \\  movq   0x50(%rdx),%xmm6
+                \\  mov    0x48(%rdx),%rsi
+                \\  mov    0x40(%rdx),%rdi
+                \\  mov    0x38(%rdx),%r15
+                \\  mov    0x30(%rdx),%r14
+                \\  mov    0x28(%rdx),%r13
+                \\  mov    0x20(%rdx),%r12
+                \\  mov    0x18(%rdx),%rbx
+                \\  mov    0x10(%rdx),%rbp
+                \\  mov    0x8(%rdx),%rsp
+                \\  jmpq   *(%rdx)
+                \\  retq
+                \\  nop
                 );
         } else {
             @compileLog("Unsupported CPU architecture. ", builtin.cpu.arch);
@@ -206,38 +320,6 @@ comptime {
         @compileLog("Unsupported OS.");
     }
 }
-
-pub const Context = struct {
-    valgrind_stack_id: u32,
-    ctx: ContextBuffer,
-    back_ctx: ContextBuffer,
-
-    pub fn create(zoro: *Zoro) !Context {
-        var zoro_addr: usize = @intCast(usize, @ptrToInt(zoro));
-        var context_addr: usize = zoro_align_foward(zoro_addr + @sizeOf(Zoro), 16);
-        var storage_addr: usize = zoro_align_foward(context_addr + @sizeOf(Context), 16);
-        var stack_addr: usize = zoro_align_foward(storage_addr + zoro.storage_size, 16);
-
-        var ctx_buf = std.mem.zeroes(ContextBuffer);
-        var storage = @intToPtr([*]u8, storage_addr);
-        zoro.storage = storage;
-
-        var stack_base = @intToPtr(?*anyopaque, stack_addr);
-        var stack_size = zoro.stack_size - 32; //Reserve 32 bytes for shadow space
-
-        //Make context
-        var stack_high_ptr: [*]?*anyopaque = @intToPtr([*]?*anyopaque, (@intCast(usize, @ptrToInt(stack_base)) +% stack_size) -% @sizeOf(usize));
-        stack_high_ptr[0] = @intToPtr(?*anyopaque, std.math.maxInt(usize));
-        ctx_buf.rip = @ptrCast(?*const anyopaque, &_zoro_wrap_main);
-        ctx_buf.rsp = @ptrCast(?*const anyopaque, stack_high_ptr);
-        ctx_buf.r12 = @ptrCast(?*const anyopaque, &_zoro_main);
-        ctx_buf.r13 = @ptrCast(?*const anyopaque, zoro);
-
-        zoro.stack_base = stack_base;
-
-        return Context{.ctx = ctx_buf, .back_ctx = undefined, .valgrind_stack_id = 0};
-    }
-};
 
 pub const Zoro = struct {
     context: ?*anyopaque,
@@ -276,12 +358,12 @@ pub const Zoro = struct {
         desc.stack_size = zoro_align_foward(desc.stack_size, 16);
         desc.func = func;
         desc.size = zoro_align_foward(@sizeOf(Zoro), 16) +
-                    zoro_align_foward(@sizeOf(Context), 16) +
+                    zoro_align_foward(@sizeOf(Impl.Context), 16) +
                     zoro_align_foward(desc.storage_size, 16) +
                     desc.stack_size + 16;
 
         try validate_desc(desc);
-        var context = Context.create(desc) catch {
+        var context = Impl.Context.create(desc) catch {
             return error.ZoroFailedToCreateContext;
         };
         desc.context = @ptrCast(?*anyopaque, &context);
