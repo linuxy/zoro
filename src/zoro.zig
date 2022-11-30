@@ -71,7 +71,7 @@ pub extern fn _zoro_wrap_main() void;
 pub extern fn _zoro_switch(from: *ContextBuffer, to: *ContextBuffer) u32;
 
 comptime {
-    if (builtin.os.tag == .linux)
+    if (builtin.os.tag == .linux) {
         if(builtin.cpu.arch == .x86_64) {
             asm (
                 \\.text
@@ -110,7 +110,98 @@ comptime {
                 \\.size _zoro_switch, .-_zoro_switch
                 );
         } else {
-            @compileLog("Unsupported CPU architecture.");
+            @compileLog("Unsupported CPU architecture. ", builtin.cpu.arch);
+        }
+    } else if (builtin.os.tag == .macos) {
+        if(builtin.cpu.arch == .aarch64) {
+            asm (
+                \\.text
+                \\.globl __zoro_wrap_main
+                \\__zoro_wrap_main:
+                \\  mov x0, x19
+                \\  mov x30, x21
+                \\  br x20
+                );
+            asm (
+                \\.text
+                \\.globl __zoro_switch
+                \\__zoro_switch:
+                \\  mov x10, sp
+                \\  mov x11, x30
+                \\  stp x19, x20, [x0, #(0*16)]
+                \\  stp x21, x22, [x0, #(1*16)]
+                \\  stp d8, d9, [x0, #(7*16)]
+                \\  stp x23, x24, [x0, #(2*16)]
+                \\  stp d10, d11, [x0, #(8*16)]
+                \\  stp x25, x26, [x0, #(3*16)]
+                \\  stp d12, d13, [x0, #(9*16)]
+                \\  stp x27, x28, [x0, #(4*16)]
+                \\  stp d14, d15, [x0, #(10*16)]
+                \\  stp x29, x30, [x0, #(5*16)]
+                \\  stp x10, x11, [x0, #(6*16)]
+                \\  ldp x19, x20, [x1, #(0*16)]
+                \\  ldp x21, x22, [x1, #(1*16)]
+                \\  ldp d8, d9, [x1, #(7*16)]
+                \\  ldp x23, x24, [x1, #(2*16)]
+                \\  ldp d10, d11, [x1, #(8*16)]
+                \\  ldp x25, x26, [x1, #(3*16)]
+                \\  ldp d12, d13, [x1, #(9*16)]
+                \\  ldp x27, x28, [x1, #(4*16)]
+                \\  ldp d14, d15, [x1, #(10*16)]
+                \\  ldp x29, x30, [x1, #(5*16)]
+                \\  ldp x10, x11, [x1, #(6*16)]
+                \\  mov sp, x10
+                \\  br x11
+                );
+        } else if(builtin.cpu.arch == .x86_64) {
+            asm (
+                \\.text
+                \\.globl __zoro_wrap_main
+                \\__zoro_wrap_main:
+                \\  movq %r13, %rdi
+                \\  jmpq *%r12
+                );
+            asm (
+                \\.text
+                \\.globl __zoro_switch
+                \\__zoro_switch:
+                \\  leaq 0x3d(%rip), %rax
+                \\  movq %rax, (%rdi)
+                \\  movq %rsp, 8(%rdi)
+                \\  movq %rbp, 16(%rdi)
+                \\  movq %rbx, 24(%rdi)
+                \\  movq %r12, 32(%rdi)
+                \\  movq %r13, 40(%rdi)
+                \\  movq %r14, 48(%rdi)
+                \\  movq %r15, 56(%rdi)
+                \\  movq 56(%rsi), %r15
+                \\  movq 48(%rsi), %r14
+                \\  movq 40(%rsi), %r13
+                \\  movq 32(%rsi), %r12
+                \\  movq 24(%rsi), %rbx
+                \\  movq 16(%rsi), %rbp
+                \\  movq 8(%rsi), %rsp
+                \\  jmpq *(%rsi)
+                \\  ret
+                );
+        } else {
+            @compileLog("Unsupported CPU architecture. ", builtin.cpu.arch);
+        }
+    } else if (builtin.os.tag == .windows) {
+        if(builtin.cpu.arch == .x86_64) {
+            asm (
+                \\.text
+                \\.globl _zoro_wrap_main
+                \\_zoro_wrap_main:
+                );
+            asm (
+                \\.text
+                \\.globl _zoro_switch
+                \\_zoro_switch:
+                );
+        } else {
+            @compileLog("Unsupported CPU architecture. ", builtin.cpu.arch);
+        }
     } else {
         @compileLog("Unsupported OS.");
     }
