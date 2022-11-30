@@ -2,7 +2,7 @@
 
 Coroutines for Zig based on [minicoro](https://github.com/edubart/minicoro)
 
-- [X] x86_64 (*nix)
+- [X] x86_64 (linux)
 - [ ] x86_64 (win)
 - [ ] x86_64 (mac)
 - [ ] ARM/ARM64 (any)
