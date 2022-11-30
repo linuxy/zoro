@@ -126,6 +126,10 @@ const WindowsX64Impl = struct {
         rdi: ?*const anyopaque,
         rsi: ?*const anyopaque,
         xmm: [20]?*const anyopaque,
+        fiber_storage: ?*const anyopaque,
+        dealloc_stack: ?*const anyopaque,
+        stack_limit: ?*const anyopaque,
+        stack_base: ?*const anyopaque,
     };
 
     pub const Context = struct {
@@ -155,7 +159,11 @@ const WindowsX64Impl = struct {
             ctx_buf.r12 = @ptrCast(?*const anyopaque, &_zoro_main);
             ctx_buf.r13 = @ptrCast(?*const anyopaque, zoro);
             var stack_top = @intToPtr(?*anyopaque, @ptrToInt(stack_base) + stack_size);
-            zoro.stack_base = stack_top;
+            ctx_buf.stack_base = stack_top;
+            ctx_buf.stack_limit = stack_base;
+            ctx_buf.dealloc_stack = stack_base;
+
+            zoro.stack_base = stack_base;
 
             return Context{.ctx = ctx_buf, .back_ctx = undefined, .valgrind_stack_id = 0};
         }
