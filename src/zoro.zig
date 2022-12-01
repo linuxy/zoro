@@ -6,7 +6,7 @@ const ZORO_MIN_STACK_SIZE = 32768;
 const ZORO_DEFAULT_STACK_SIZE = 57344;
 const ZORO_MAGIC_NUMBER = 0xDEADB33F;
 
-const allocator = std.heap.c_allocator;
+const allocator = std.heap.page_allocator;
 
 const Impl = if(builtin.os.tag == .linux and builtin.cpu.arch == .x86_64)
     LinuxX64Impl
@@ -37,6 +37,9 @@ const LinuxX64Impl = struct {
         r14: ?*const anyopaque,
         r15: ?*const anyopaque,
     };
+
+    pub extern fn _zoro_wrap_main() void;
+    pub extern fn _zoro_switch(from: *ContextBuffer, to: *ContextBuffer) u32;
 
     pub const Context = struct {
         valgrind_stack_id: u32,
@@ -78,6 +81,9 @@ const MacAA64Impl = struct {
         lr: ?*const anyopaque,
         d: [8]?*const anyopaque,
     };
+
+    pub extern fn _zoro_wrap_main() void;
+    pub extern fn _zoro_switch(from: *ContextBuffer, to: *ContextBuffer) u32;
 
     pub const Context = struct {
         valgrind_stack_id: u32,
@@ -132,30 +138,40 @@ const WindowsX64Impl = struct {
         stack_base: ?*const anyopaque,
     };
 
+    pub extern fn _zoro_wrap_main() void;
+    pub extern fn _zoro_switch(from: *ContextBuffer, to: *ContextBuffer) u32;
+
     pub const Context = struct {
         valgrind_stack_id: u32,
         ctx: ContextBuffer,
         back_ctx: ContextBuffer,
 
+        const w =  @cImport({
+            @cDefine("WIN32_LEAN_AND_MEAN", "1");
+            @cInclude("intrin.h");
+            @cInclude("Windows.h");
+        });
+
         pub fn create(zoro: *Zoro) !Context {
             var zoro_addr: usize = @intCast(usize, @ptrToInt(zoro));
-            var context_addr: usize = zoro_align_foward(zoro_addr + @sizeOf(Zoro), 16);
-            var storage_addr: usize = zoro_align_foward(context_addr + @sizeOf(Context), 16);
-            var stack_addr: usize = zoro_align_foward(storage_addr + zoro.storage_size, 16);
+            var context_addr: usize = std.mem.alignForward(zoro_addr + @sizeOf(Zoro), 16);
+            var storage_addr: usize = std.mem.alignForward(context_addr + @sizeOf(Context), 16);
+            var stack_addr: usize = std.mem.alignForward(storage_addr + zoro.storage_size, 16);
 
             var ctx_buf = std.mem.zeroes(ContextBuffer);
             var storage = @intToPtr([*]u8, storage_addr);
+
             zoro.storage = storage;
 
             var stack_base = @intToPtr(?*anyopaque, stack_addr);
             var stack_size = zoro.stack_size - 32; //Reserve 32 bytes for shadow space
 
             //Make context
-            //Segfaults
-            var stack_high_ptr: [*]?*anyopaque = @intToPtr([*]?*anyopaque, (@intCast(usize, @ptrToInt(stack_base)) +% stack_size) -% @sizeOf(usize));
-            stack_high_ptr[0] = @intToPtr(?*anyopaque, 0xdeaddeaddeaddead);
+            var stack_limit = @intToPtr([*]?*anyopaque, @ptrCast(*w.NT_TIB64, @alignCast(@alignOf(*w.NT_TIB64), w.NtCurrentTeb())).StackLimit -% @sizeOf(usize));
+            stack_limit[0] = @intToPtr(?*anyopaque, 0xdeaddeaddeaddead);
+
             ctx_buf.rip = @ptrCast(?*const anyopaque, &_zoro_wrap_main);
-            ctx_buf.rsp = @ptrCast(?*const anyopaque, stack_high_ptr);
+            ctx_buf.rsp = @ptrCast(?*const anyopaque, stack_limit);
             ctx_buf.r12 = @ptrCast(?*const anyopaque, &_zoro_main);
             ctx_buf.r13 = @ptrCast(?*const anyopaque, zoro);
             var stack_top = @intToPtr(?*anyopaque, @ptrToInt(stack_base) + stack_size);
@@ -191,7 +207,7 @@ pub inline fn _zoro_prepare_jumpin(zoro: *Zoro) void {
 pub fn _zoro_jumpin(zoro: *Zoro) void {
     var context = @ptrCast(*Impl.Context, @alignCast(@alignOf(Impl.Context), zoro.context));
     _zoro_prepare_jumpin(zoro);
-    _ = _zoro_switch(&context.back_ctx, &context.ctx);
+    _ = Impl._zoro_switch(&context.back_ctx, &context.ctx);
 }
 
 pub inline fn _zoro_prepare_jumpout(zoro: *Zoro) void {
@@ -205,15 +221,12 @@ pub inline fn _zoro_prepare_jumpout(zoro: *Zoro) void {
 pub fn _zoro_jumpout(zoro: *Zoro) void {
     var context = @ptrCast(*Impl.Context, @alignCast(@alignOf(Impl.Context), zoro.context));
     _zoro_prepare_jumpout(zoro);
-    _ = _zoro_switch(&context.ctx, &context.back_ctx);
+    _ = Impl._zoro_switch(&context.ctx, &context.back_ctx);
 }
 
 pub fn _zoro_running() ?*Zoro {
     return current_zoro;
 }
-
-pub extern fn _zoro_wrap_main() void;
-pub extern fn _zoro_switch(from: *Impl.ContextBuffer, to: *Impl.ContextBuffer) u32;
 
 comptime {
     if (builtin.os.tag == .linux) {
@@ -494,6 +507,7 @@ pub const Zoro = struct {
                 return error.ZoroPushNotEnoughSpace;
 
             @memcpy(@ptrCast([*]u8, self.storage.?[local_bytes-len..local_bytes]), @ptrCast([*]const u8, src), len);
+
             self.bytes_stored = local_bytes;
         }
     }
@@ -507,7 +521,6 @@ pub const Zoro = struct {
             var local_bytes: usize = self.bytes_stored -% len;
 
             @memcpy(@ptrCast([*]u8, dest), @ptrCast([*]const u8, self.storage.?[local_bytes..self.bytes_stored]), len);
-
             self.bytes_stored = local_bytes;
         }
     }
