@@ -28,7 +28,6 @@ pub fn main() !void {
     var counter: usize = 1;
     while (zoro.status() == .SUSPENDED) {
         try zoro.restart(); //resume
-
         var ret: u64 = 0;
         try zoro.pop(&ret);
         std.log.info("fib {} = {}", .{counter, ret});
