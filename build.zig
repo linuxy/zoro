@@ -31,6 +31,9 @@ pub fn build(b: *std.build.Builder) void {
 
     const main_tests = b.addTest("src/zoro.zig");
     main_tests.linkLibC();
+    if (target.isWindows()) {
+        main_tests.addCSourceFiles(&.{"src/readgsword.c"}, &c_flags);
+    }
     
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests.step);

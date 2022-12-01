@@ -156,26 +156,24 @@ const WindowsX64Impl = struct {
             var zoro_addr: usize = @intCast(usize, @ptrToInt(zoro));
             var context_addr: usize = std.mem.alignForward(zoro_addr + @sizeOf(Zoro), 16);
             var storage_addr: usize = std.mem.alignForward(context_addr + @sizeOf(Context), 16);
-            var stack_addr: usize = std.mem.alignForward(storage_addr + zoro.storage_size, 16);
 
             var ctx_buf = std.mem.zeroes(ContextBuffer);
             var storage = @intToPtr([*]u8, storage_addr);
 
             zoro.storage = storage;
 
-            var stack_base = @intToPtr(?*anyopaque, stack_addr);
-            var stack_size = zoro.stack_size - 32; //Reserve 32 bytes for shadow space
+            var stack_base = @intToPtr(?*anyopaque, @ptrCast(*w.NT_TIB64, @alignCast(@alignOf(*w.NT_TIB64), w.NtCurrentTeb())).StackBase);
 
             //Make context
-            var stack_limit = @intToPtr([*]?*anyopaque, @ptrCast(*w.NT_TIB64, @alignCast(@alignOf(*w.NT_TIB64), w.NtCurrentTeb())).StackLimit -% @sizeOf(usize));
+            var stack_limit = @intToPtr([*]?*anyopaque, @ptrCast(*w.NT_TIB64, @alignCast(@alignOf(*w.NT_TIB64), w.NtCurrentTeb())).StackLimit -% @sizeOf(usize) - 32);
             stack_limit[0] = @intToPtr(?*anyopaque, 0xdeaddeaddeaddead);
 
             ctx_buf.rip = @ptrCast(?*const anyopaque, &_zoro_wrap_main);
             ctx_buf.rsp = @ptrCast(?*const anyopaque, stack_limit);
             ctx_buf.r12 = @ptrCast(?*const anyopaque, &_zoro_main);
             ctx_buf.r13 = @ptrCast(?*const anyopaque, zoro);
-            var stack_top = @intToPtr(?*anyopaque, @ptrToInt(stack_base) + stack_size);
-            ctx_buf.stack_base = stack_top;
+
+            ctx_buf.stack_base = stack_base;
             ctx_buf.stack_limit = stack_base;
             ctx_buf.dealloc_stack = stack_base;
 
@@ -507,7 +505,6 @@ pub const Zoro = struct {
                 return error.ZoroPushNotEnoughSpace;
 
             @memcpy(@ptrCast([*]u8, self.storage.?[local_bytes-len..local_bytes]), @ptrCast([*]const u8, src), len);
-
             self.bytes_stored = local_bytes;
         }
     }
