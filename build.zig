@@ -18,7 +18,8 @@ pub fn build(b: *std.build.Builder) void {
     exe.addPackage(zoroPkg);
 
     if (target.isWindows()) {
-        exe.addCSourceFiles(&.{"src/readgsword.c"}, &c_flags);
+        exe.addCSourceFiles(&.{"src/readgsword.c", "src/minicoro.c"}, &c_flags);
+        exe.addIncludePath("src");
     }
 
     exe.install();
@@ -32,7 +33,8 @@ pub fn build(b: *std.build.Builder) void {
     const main_tests = b.addTest("src/zoro.zig");
     main_tests.linkLibC();
     if (target.isWindows()) {
-        main_tests.addCSourceFiles(&.{"src/readgsword.c"}, &c_flags);
+        main_tests.addCSourceFiles(&.{"src/readgsword.c", "src/minicoro.c"}, &c_flags);
+        main_tests.addIncludePath("src");
     }
     
     const test_step = b.step("test", "Run library tests");

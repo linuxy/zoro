@@ -6,7 +6,7 @@ const ZORO_MIN_STACK_SIZE = 32768;
 const ZORO_DEFAULT_STACK_SIZE = 57344;
 const ZORO_MAGIC_NUMBER = 0xDEADB33F;
 
-const allocator = std.heap.page_allocator;
+const allocator = std.heap.c_allocator;
 
 const Impl = if(builtin.os.tag == .linux and builtin.cpu.arch == .x86_64)
     LinuxX64Impl
@@ -16,6 +16,17 @@ else if(builtin.os.tag == .macos and builtin.cpu.arch == .x86_64)
     MacX64Impl
 else if(builtin.os.tag == .windows and builtin.cpu.arch == .x86_64)
     WindowsX64Impl
+else
+    UnsupportedImpl;
+
+pub const Zoro = if(builtin.os.tag == .linux and builtin.cpu.arch == .x86_64)
+    ZoroPosixX64
+else if(builtin.os.tag == .macos and builtin.cpu.arch == .aarch64)
+    ZoroPosixX64
+else if(builtin.os.tag == .macos and builtin.cpu.arch == .x86_64)
+    ZoroPosixX64
+else if(builtin.os.tag == .windows and builtin.cpu.arch == .x86_64)
+    WindowsX64Impl.Zoro
 else
     UnsupportedImpl;
 
@@ -42,7 +53,6 @@ const LinuxX64Impl = struct {
     pub extern fn _zoro_switch(from: *ContextBuffer, to: *ContextBuffer) u32;
 
     pub const Context = struct {
-        valgrind_stack_id: u32,
         ctx: ContextBuffer,
         back_ctx: ContextBuffer,
 
@@ -69,7 +79,7 @@ const LinuxX64Impl = struct {
 
             zoro.stack_base = stack_base;
 
-            return Context{.ctx = ctx_buf, .back_ctx = undefined, .valgrind_stack_id = 0};
+            return Context{.ctx = ctx_buf, .back_ctx = undefined};
         }
     };
 };
@@ -86,7 +96,6 @@ const MacAA64Impl = struct {
     pub extern fn _zoro_switch(from: *ContextBuffer, to: *ContextBuffer) u32;
 
     pub const Context = struct {
-        valgrind_stack_id: u32,
         ctx: ContextBuffer,
         back_ctx: ContextBuffer,
 
@@ -112,77 +121,94 @@ const MacAA64Impl = struct {
 
             zoro.stack_base = stack_base;
 
-            return Context{.ctx = ctx_buf, .back_ctx = undefined, .valgrind_stack_id = 0};
+            return Context{.ctx = ctx_buf, .back_ctx = undefined};
         }
     };
 };
 
 const MacX64Impl = LinuxX64Impl;
 
-const WindowsX64Impl = struct {
-    pub const ContextBuffer = struct {
-        rip: ?*const anyopaque,
-        rsp: ?*const anyopaque,
-        rbp: ?*const anyopaque,
-        rbx: ?*const anyopaque,
-        r12: ?*const anyopaque,
-        r13: ?*const anyopaque,
-        r14: ?*const anyopaque,
-        r15: ?*const anyopaque,
-        rdi: ?*const anyopaque,
-        rsi: ?*const anyopaque,
-        xmm: [20]?*const anyopaque,
-        fiber_storage: ?*const anyopaque,
-        dealloc_stack: ?*const anyopaque,
-        stack_limit: ?*const anyopaque,
-        stack_base: ?*const anyopaque,
-    };
+//TODO: Verify nested co-routines function
+pub const WindowsX64Impl = struct {
 
-    pub extern fn _zoro_wrap_main() void;
-    pub extern fn _zoro_switch(from: *ContextBuffer, to: *ContextBuffer) u32;
+    const c =  @cImport({
+        @cInclude("minicoro.h");
+    });
 
-    pub const Context = struct {
-        valgrind_stack_id: u32,
-        ctx: ContextBuffer,
-        back_ctx: ContextBuffer,
+    pub threadlocal var co: [*c]c.mco_coro = undefined;
 
-        const w =  @cImport({
-            @cDefine("WIN32_LEAN_AND_MEAN", "1");
-            @cInclude("intrin.h");
-            @cInclude("Windows.h");
-        });
+    pub const Zoro = struct {
+        desc: c.struct_mco_desc,
+        co: [*c]c.mco_coro,
+        func: ?*const fn(*WindowsX64Impl.Zoro) anyerror!void,
 
-        pub fn create(zoro: *Zoro) !Context {
-            var zoro_addr: usize = @intCast(usize, @ptrToInt(zoro));
-            var context_addr: usize = std.mem.alignForward(zoro_addr + @sizeOf(Zoro), 16);
-            var storage_addr: usize = std.mem.alignForward(context_addr + @sizeOf(Context), 16);
+        pub fn bytes_stored(self: *WindowsX64Impl.Zoro) usize {
+            _ = self;
+            return co.*.bytes_stored;
+        }
 
-            var ctx_buf = std.mem.zeroes(ContextBuffer);
-            var storage = @intToPtr([*]u8, storage_addr);
+        pub fn create(func: anytype, stack_size: usize) !*WindowsX64Impl.Zoro {
+            var zoro = try allocator.create(WindowsX64Impl.Zoro);
+            zoro.func = func;
+            zoro.desc = c.mco_desc_init(@ptrCast(?*const fn([*c]c.struct_mco_coro)  callconv(.C) void, &func), stack_size);
+            var res = c.mco_create(&co, &zoro.desc);
+            if (res != @bitCast(c_uint, c.MCO_SUCCESS)) {
+                return error.ZoroFailedToCreateContext;
+            }
+            zoro.co = co;
+            return zoro;
+        }
 
-            zoro.storage = storage;
+        pub fn pop(self: *WindowsX64Impl.Zoro, dest: anytype) !void {
+            const len = @sizeOf(@TypeOf(dest));
+            var res = c.mco_pop(co, dest, len);
+            _ = res;
+            _ = self;
+        }
 
-            var stack_base = @intToPtr(?*anyopaque, @ptrCast(*w.NT_TIB64, @alignCast(@alignOf(*w.NT_TIB64), w.NtCurrentTeb())).StackBase);
+        pub fn push(self: *WindowsX64Impl.Zoro, src: anytype) !void {
+            const len = @sizeOf(@TypeOf(src));
+            var res = c.mco_push(co, src, len);
+            _ = res;
+            _ = self;
+        }
 
-            //Make context
-            var stack_limit = @intToPtr([*]?*anyopaque, @ptrCast(*w.NT_TIB64, @alignCast(@alignOf(*w.NT_TIB64), w.NtCurrentTeb())).StackLimit -% @sizeOf(usize) - 32);
-            stack_limit[0] = @intToPtr(?*anyopaque, 0xdeaddeaddeaddead);
+        pub fn peek(self: *WindowsX64Impl.Zoro, dest: anytype) !void {
+            const len = @sizeOf(@TypeOf(dest));
+            var res = c.mco_peek(co, dest, len);
+            _ = res;
+            _ = self;
+        }
 
-            ctx_buf.rip = @ptrCast(?*const anyopaque, &_zoro_wrap_main);
-            ctx_buf.rsp = @ptrCast(?*const anyopaque, stack_limit);
-            ctx_buf.r12 = @ptrCast(?*const anyopaque, &_zoro_main);
-            ctx_buf.r13 = @ptrCast(?*const anyopaque, zoro);
+        pub fn yield(self: *WindowsX64Impl.Zoro) !void {
+            var res = c.mco_yield(co);
+            _ = res;
+            _ = self;
+        }
 
-            ctx_buf.stack_base = stack_base;
-            ctx_buf.stack_limit = stack_base;
-            ctx_buf.dealloc_stack = stack_base;
+        pub fn running(self: *WindowsX64Impl.Zoro) ?*WindowsX64Impl.Zoro {
+            return self;
+        }
 
-            zoro.stack_base = stack_base;
+        pub fn status(self: *WindowsX64Impl.Zoro) ZoroState {
+            _ = self;
+            return @intToEnum(ZoroState, co.*.state);
+        }
 
-            return Context{.ctx = ctx_buf, .back_ctx = undefined, .valgrind_stack_id = 0};
+        pub fn restart(self: *WindowsX64Impl.Zoro) !void {
+            var res = c.mco_resume(co);
+            _ = res;
+            _ = self;
+        }
+
+        pub fn destroy(self: *WindowsX64Impl.Zoro) void {
+            _ = c.mco_uninit(self.co);
+            _ = c.mco_destroy(self.co);
+            allocator.destroy(self);
         }
     };
 };
+
 const UnsupportedImpl = struct {};
 
 pub fn _zoro_main(zoro: *Zoro) void {
@@ -205,7 +231,7 @@ pub inline fn _zoro_prepare_jumpin(zoro: *Zoro) void {
 pub fn _zoro_jumpin(zoro: *Zoro) void {
     var context = @ptrCast(*Impl.Context, @alignCast(@alignOf(Impl.Context), zoro.context));
     _zoro_prepare_jumpin(zoro);
-    _ = Impl._zoro_switch(&context.back_ctx, &context.ctx);
+    _ = Impl._zoro_switch.?(&context.back_ctx, &context.ctx);
 }
 
 pub inline fn _zoro_prepare_jumpout(zoro: *Zoro) void {
@@ -219,7 +245,7 @@ pub inline fn _zoro_prepare_jumpout(zoro: *Zoro) void {
 pub fn _zoro_jumpout(zoro: *Zoro) void {
     var context = @ptrCast(*Impl.Context, @alignCast(@alignOf(Impl.Context), zoro.context));
     _zoro_prepare_jumpout(zoro);
-    _ = Impl._zoro_switch(&context.ctx, &context.back_ctx);
+    _ = Impl._zoro_switch.?(&context.ctx, &context.back_ctx);
 }
 
 pub fn _zoro_running() ?*Zoro {
@@ -345,80 +371,80 @@ comptime {
         }
     } else if (builtin.os.tag == .windows) {
         if(builtin.cpu.arch == .x86_64) {
-            asm (
-                \\.text
-                \\.globl _zoro_wrap_main
-                \\_zoro_wrap_main:
-                \\  mov %r13,%rcx
-                \\  jmpq *%r12
-                \\  retq
-                \\  nop
-                );
-            asm (
-                \\.text
-                \\.globl _zoro_switch
-                \\_zoro_switch:
-                \\  lea    0x152(%rip),%rax
-                \\  mov    %rax,(%rcx)
-                \\  mov    %rsp,0x8(%rcx)
-                \\  mov    %rbp,0x10(%rcx)
-                \\  mov    %rbx,0x18(%rcx)
-                \\  mov    %r12,0x20(%rcx)
-                \\  mov    %r13,0x28(%rcx)
-                \\  mov    %r14,0x30(%rcx)
-                \\  mov    %r15,0x38(%rcx)
-                \\  mov    %rdi,0x40(%rcx)
-                \\  mov    %rsi,0x48(%rcx)
-                \\  movq   %xmm6,0x50(%rcx)
-                \\  movq   %xmm7,0x60(%rcx)
-                \\  movq   %xmm8,0x70(%rcx)
-                \\  movq   %xmm9,0x80(%rcx)
-                \\  movq   %xmm10,0x90(%rcx)
-                \\  movq   %xmm11,0xa0(%rcx)
-                \\  movq   %xmm12,0xb0(%rcx)
-                \\  movq   %xmm13,0xc0(%rcx)
-                \\  movq   %xmm14,0xd0(%rcx)
-                \\  movq   %xmm15,0xe0(%rcx)
-                \\  mov    %gs:0x30,%r10
-                \\  mov    (%r10),%rax
-                \\  mov    %rax,0xf0(%rcx)
-                \\  mov    (%r10),%rax
-                \\  mov    %rax,0xf8(%rcx)
-                \\  mov    0x10(%r10),%rax
-                \\  mov    %rax,0x100(%rcx)
-                \\  mov    0x8(%r10),%rax
-                \\  mov    %rax,0x108(%rcx)
-                \\  mov    0x108(%rdx),%rax
-                \\  mov    %rax,0x8(%r10)
-                \\  mov    0x100(%rdx),%rax
-                \\  mov    %rax,0x10(%r10)
-                \\  mov    0xf8(%rdx),%rax
-                \\  mov    %rax,0x1478(%r10)
-                \\  mov    0xf0(%rdx),%rax
-                \\  mov    %rax,0x20(%r10)
-                \\  movq   0xe0(%rdx),%xmm15
-                \\  movq   0xd0(%rdx),%xmm14
-                \\  movq   0xc0(%rdx),%xmm13
-                \\  movq   0xb0(%rdx),%xmm12
-                \\  movq   0xa0(%rdx),%xmm11
-                \\  movq   0x90(%rdx),%xmm10
-                \\  movq   0x80(%rdx),%xmm9
-                \\  movq   0x70(%rdx),%xmm8
-                \\  movq   0x60(%rdx),%xmm7
-                \\  movq   0x50(%rdx),%xmm6
-                \\  mov    0x48(%rdx),%rsi
-                \\  mov    0x40(%rdx),%rdi
-                \\  mov    0x38(%rdx),%r15
-                \\  mov    0x30(%rdx),%r14
-                \\  mov    0x28(%rdx),%r13
-                \\  mov    0x20(%rdx),%r12
-                \\  mov    0x18(%rdx),%rbx
-                \\  mov    0x10(%rdx),%rbp
-                \\  mov    0x8(%rdx),%rsp
-                \\  jmpq   *(%rdx)
-                \\  retq
-                \\  nop
-                );
+            // asm (
+            //     \\.text
+            //     \\.globl _zoro_wrap_main
+            //     \\_zoro_wrap_main:
+            //     \\  mov %r13,%rcx
+            //     \\  jmpq *%r12
+            //     \\  retq
+            //     \\  nop
+            //     );
+            // asm (
+            //     \\.text
+            //     \\.globl _zoro_switch
+            //     \\_zoro_switch:
+            //     \\  lea    0x152(%rip),%rax
+            //     \\  mov    %rax,(%rcx)
+            //     \\  mov    %rsp,0x8(%rcx)
+            //     \\  mov    %rbp,0x10(%rcx)
+            //     \\  mov    %rbx,0x18(%rcx)
+            //     \\  mov    %r12,0x20(%rcx)
+            //     \\  mov    %r13,0x28(%rcx)
+            //     \\  mov    %r14,0x30(%rcx)
+            //     \\  mov    %r15,0x38(%rcx)
+            //     \\  mov    %rdi,0x40(%rcx)
+            //     \\  mov    %rsi,0x48(%rcx)
+            //     \\  movq   %xmm6,0x50(%rcx)
+            //     \\  movq   %xmm7,0x60(%rcx)
+            //     \\  movq   %xmm8,0x70(%rcx)
+            //     \\  movq   %xmm9,0x80(%rcx)
+            //     \\  movq   %xmm10,0x90(%rcx)
+            //     \\  movq   %xmm11,0xa0(%rcx)
+            //     \\  movq   %xmm12,0xb0(%rcx)
+            //     \\  movq   %xmm13,0xc0(%rcx)
+            //     \\  movq   %xmm14,0xd0(%rcx)
+            //     \\  movq   %xmm15,0xe0(%rcx)
+            //     \\  mov    %gs:0x30,%r10
+            //     \\  mov    (%r10),%rax
+            //     \\  mov    %rax,0xf0(%rcx)
+            //     \\  mov    (%r10),%rax
+            //     \\  mov    %rax,0xf8(%rcx)
+            //     \\  mov    0x10(%r10),%rax
+            //     \\  mov    %rax,0x100(%rcx)
+            //     \\  mov    0x8(%r10),%rax
+            //     \\  mov    %rax,0x108(%rcx)
+            //     \\  mov    0x108(%rdx),%rax
+            //     \\  mov    %rax,0x8(%r10)
+            //     \\  mov    0x100(%rdx),%rax
+            //     \\  mov    %rax,0x10(%r10)
+            //     \\  mov    0xf8(%rdx),%rax
+            //     \\  mov    %rax,0x1478(%r10)
+            //     \\  mov    0xf0(%rdx),%rax
+            //     \\  mov    %rax,0x20(%r10)
+            //     \\  movq   0xe0(%rdx),%xmm15
+            //     \\  movq   0xd0(%rdx),%xmm14
+            //     \\  movq   0xc0(%rdx),%xmm13
+            //     \\  movq   0xb0(%rdx),%xmm12
+            //     \\  movq   0xa0(%rdx),%xmm11
+            //     \\  movq   0x90(%rdx),%xmm10
+            //     \\  movq   0x80(%rdx),%xmm9
+            //     \\  movq   0x70(%rdx),%xmm8
+            //     \\  movq   0x60(%rdx),%xmm7
+            //     \\  movq   0x50(%rdx),%xmm6
+            //     \\  mov    0x48(%rdx),%rsi
+            //     \\  mov    0x40(%rdx),%rdi
+            //     \\  mov    0x38(%rdx),%r15
+            //     \\  mov    0x30(%rdx),%r14
+            //     \\  mov    0x28(%rdx),%r13
+            //     \\  mov    0x20(%rdx),%r12
+            //     \\  mov    0x18(%rdx),%rbx
+            //     \\  mov    0x10(%rdx),%rbp
+            //     \\  mov    0x8(%rdx),%rsp
+            //     \\  jmpq   *(%rdx)
+            //     \\  retq
+            //     \\  nop
+            //    );
         } else {
             @compileLog("Unsupported CPU architecture. ", builtin.cpu.arch);
         }
@@ -427,7 +453,7 @@ comptime {
     }
 }
 
-pub const Zoro = struct {
+pub const ZoroPosixX64 = struct {
     context: ?*anyopaque,
     state: ZoroState,
     func: ?*const fn(*Zoro) anyerror!void,
@@ -504,7 +530,7 @@ pub const Zoro = struct {
             if(local_bytes > self.storage_size)
                 return error.ZoroPushNotEnoughSpace;
 
-            @memcpy(@ptrCast([*]u8, self.storage.?[local_bytes-len..local_bytes]), @ptrCast([*]const u8, src), len);
+            @memcpy(@ptrCast([*]u8, self.storage.?[local_bytes-len..local_bytes]), @ptrCast([*]const u8, &src), len);
             self.bytes_stored = local_bytes;
         }
     }
