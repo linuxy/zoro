@@ -530,7 +530,7 @@ pub const ZoroPosixX64 = struct {
             if(local_bytes > self.storage_size)
                 return error.ZoroPushNotEnoughSpace;
 
-            @memcpy(@ptrCast([*]u8, self.storage.?[local_bytes-len..local_bytes]), @ptrCast([*]const u8, &src), len);
+            @memcpy(@ptrCast([*]u8, self.storage.?[local_bytes-len..local_bytes]), @ptrCast([*]const u8, src), len);
             self.bytes_stored = local_bytes;
         }
     }
