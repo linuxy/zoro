@@ -53,6 +53,7 @@ const LinuxX64Impl = struct {
     pub extern fn _zoro_switch(from: *ContextBuffer, to: *ContextBuffer) u32;
 
     pub const Context = struct {
+        valgrind_stack_id: u32,
         ctx: ContextBuffer,
         back_ctx: ContextBuffer,
 
@@ -67,7 +68,7 @@ const LinuxX64Impl = struct {
             zoro.storage = storage;
 
             var stack_base = @intToPtr(?*anyopaque, stack_addr);
-            var stack_size = zoro.stack_size - 128; //Reserve 128 bytes for shadow space
+            var stack_size = zoro.stack_size - 128;
 
             //Make context
             var stack_high_ptr: [*]?*anyopaque = @intToPtr([*]?*anyopaque, (@intCast(usize, @ptrToInt(stack_base)) +% stack_size) -% @sizeOf(usize));
@@ -79,7 +80,7 @@ const LinuxX64Impl = struct {
 
             zoro.stack_base = stack_base;
 
-            return Context{.ctx = ctx_buf, .back_ctx = undefined};
+            return Context{.ctx = ctx_buf, .back_ctx = undefined, .valgrind_stack_id = 0};
         }
     };
 };
