@@ -231,7 +231,7 @@ pub inline fn _zoro_prepare_jumpin(zoro: *Zoro) void {
 pub fn _zoro_jumpin(zoro: *Zoro) void {
     var context = @ptrCast(*Impl.Context, @alignCast(@alignOf(Impl.Context), zoro.context));
     _zoro_prepare_jumpin(zoro);
-    _ = Impl._zoro_switch.?(&context.back_ctx, &context.ctx);
+    _ = Impl._zoro_switch(&context.back_ctx, &context.ctx);
 }
 
 pub inline fn _zoro_prepare_jumpout(zoro: *Zoro) void {
@@ -245,7 +245,7 @@ pub inline fn _zoro_prepare_jumpout(zoro: *Zoro) void {
 pub fn _zoro_jumpout(zoro: *Zoro) void {
     var context = @ptrCast(*Impl.Context, @alignCast(@alignOf(Impl.Context), zoro.context));
     _zoro_prepare_jumpout(zoro);
-    _ = Impl._zoro_switch.?(&context.ctx, &context.back_ctx);
+    _ = Impl._zoro_switch(&context.ctx, &context.back_ctx);
 }
 
 pub fn _zoro_running() ?*Zoro {
