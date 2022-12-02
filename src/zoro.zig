@@ -196,7 +196,7 @@ pub const WindowsX64Impl = struct {
             return @intToEnum(ZoroState, co.*.state);
         }
 
-        pub fn restart(self: *WindowsX64Impl.Zoro) void {
+        pub fn restart(self: *WindowsX64Impl.Zoro) !void {
             var res = c.mco_resume(co);
             _ = res;
             _ = self;
