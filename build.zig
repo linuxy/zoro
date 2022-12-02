@@ -6,11 +6,7 @@ pub fn build(b: *std.build.Builder) void {
 
     const zoroPkg = std.build.Pkg{ .name = "zoro", .source = std.build.FileSource{ .path = "src/zoro.zig" }};
 
-    const c_flags = [_][]const u8{
-        "-lcomctl32",
-        "-Wl",
-        "-municode",
-    };
+    const c_flags = [_][]const u8{};
 
     const exe = b.addExecutable("zoro", "examples/fibonacci.zig");
     exe.setBuildMode(mode);
