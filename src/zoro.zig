@@ -519,7 +519,7 @@ pub const ZoroPosixX64 = struct {
 
             var local_bytes: usize = self.bytes_stored -% len;
 
-            @memcpy(@ptrCast([*]u8, dest), @ptrCast([*]const u8, self.storage.?[local_bytes..self.bytes_stored]), len);
+            dest.* = @ptrCast(@TypeOf(dest), @alignCast(@alignOf(@TypeOf(dest)), self.storage.?[local_bytes..self.bytes_stored])).*;
         }
     }
 
@@ -544,7 +544,7 @@ pub const ZoroPosixX64 = struct {
 
             var local_bytes: usize = self.bytes_stored -% len;
 
-            @memcpy(@ptrCast([*]u8, dest), @ptrCast([*]const u8, self.storage.?[local_bytes..self.bytes_stored]), len);
+            dest.* = @ptrCast(@TypeOf(dest), @alignCast(@alignOf(@TypeOf(dest)), self.storage.?[local_bytes..self.bytes_stored])).*;
             self.bytes_stored = local_bytes;
         }
     }
@@ -640,15 +640,15 @@ test "nested" {
 pub fn test_nested2(zoro2: *Zoro) !void {
     var zoro: *Zoro = undefined;
     std.debug.assert(zoro2.status() == .RUNNING);
-    try zoro2.pop(zoro);
+    try zoro2.pop(&zoro);
     std.debug.assert(zoro.status() == .ACTIVE);
     std.debug.assert(zoro2.get_bytes_stored() == 0);
-    try zoro.yield();
+    try zoro2.yield();
 }
 
 pub fn test_nested(zoro: *Zoro) !void {
     var zoro2 = try Zoro.create(test_nested2, 0);
-    try zoro2.push(zoro);
+    try zoro2.push(&zoro);
     try zoro2.restart();
     std.debug.assert(zoro2.get_bytes_stored() == 0);
     std.debug.assert(zoro2.status() == .DONE);
