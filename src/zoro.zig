@@ -85,6 +85,87 @@ const LinuxX64Impl = struct {
     };
 };
 
+//TODO: Verify nested co-routines function
+pub const WindowsX64Impl = struct {
+
+    const c =  @cImport({
+        @cInclude("minicoro.h");
+    });
+
+    pub threadlocal var co: [*c]c.mco_coro = undefined;
+
+    pub const Zoro = struct {
+        desc: c.struct_mco_desc,
+        co: [*c]c.mco_coro,
+        func: ?*const fn(*WindowsX64Impl.Zoro) anyerror!void,
+
+        pub fn get_bytes_stored(self: *WindowsX64Impl.Zoro) usize {
+            _ = self;
+            return co.*.bytes_stored;
+        }
+
+        pub fn create(func: anytype, stack_size: usize) !*WindowsX64Impl.Zoro {
+            var zoro = try allocator.create(WindowsX64Impl.Zoro);
+            zoro.func = func;
+            zoro.desc = c.mco_desc_init(@ptrCast(?*const fn([*c]c.struct_mco_coro)  callconv(.C) void, &func), stack_size);
+            var res = c.mco_create(&co, &zoro.desc);
+            if (res != @bitCast(c_uint, c.MCO_SUCCESS)) {
+                return error.ZoroFailedToCreateContext;
+            }
+            zoro.co = co;
+            return zoro;
+        }
+
+        pub fn pop(self: *WindowsX64Impl.Zoro, dest: anytype) !void {
+            const len = @sizeOf(@TypeOf(dest));
+            var res = c.mco_pop(co, @ptrCast(?*anyopaque, dest), len);
+            _ = res;
+            _ = self;
+        }
+
+        pub fn push(self: *WindowsX64Impl.Zoro, src: anytype) !void {
+            const len = @sizeOf(@TypeOf(src));
+            var res = c.mco_push(co,  @ptrCast(?*anyopaque, src), len);
+            _ = res;
+            _ = self;
+        }
+
+        pub fn peek(self: *WindowsX64Impl.Zoro, dest: anytype) !void {
+            const len = @sizeOf(@TypeOf(dest));
+            var res = c.mco_peek(co, @ptrCast(?*anyopaque, dest), len);
+            _ = res;
+            _ = self;
+        }
+
+        pub fn yield(self: *WindowsX64Impl.Zoro) !void {
+            var res = c.mco_yield(co);
+            _ = res;
+            _ = self;
+        }
+
+        pub fn running(self: *WindowsX64Impl.Zoro) ?*WindowsX64Impl.Zoro {
+            return self;
+        }
+
+        pub fn status(self: *WindowsX64Impl.Zoro) ZoroState {
+            _ = self;
+            return @intToEnum(ZoroState, co.*.state);
+        }
+
+        pub fn restart(self: *WindowsX64Impl.Zoro) !void {
+            var res = c.mco_resume(co);
+            _ = res;
+            _ = self;
+        }
+
+        pub fn destroy(self: *WindowsX64Impl.Zoro) void {
+            _ = c.mco_uninit(self.co);
+            _ = c.mco_destroy(self.co);
+            allocator.destroy(self);
+        }
+    };
+};
+
 const MacAA64Impl = struct {
     pub const ContextBuffer = struct {
         x: [12]?*const anyopaque,
@@ -472,7 +553,7 @@ pub const ZoroPosixX64 = struct {
     magic_number: usize,
     size: usize,
 
-    pub fn bytes_stored(self: *Zoro) usize {
+    pub fn get_bytes_stored(self: *Zoro) usize {
         return self.bytes_stored;
     }
 
@@ -519,7 +600,7 @@ pub const ZoroPosixX64 = struct {
 
             var local_bytes: usize = self.bytes_stored -% len;
 
-            @memcpy(@ptrCast([*]u8, dest), @ptrCast([*]const u8, self.storage.?[local_bytes..self.bytes_stored]), len);
+            dest.* = @ptrCast(@TypeOf(dest), @alignCast(@alignOf(@TypeOf(dest)), self.storage.?[local_bytes..self.bytes_stored])).*;
         }
     }
 
@@ -543,8 +624,7 @@ pub const ZoroPosixX64 = struct {
                 return error.ZoroPopNotEnoughSpace;
 
             var local_bytes: usize = self.bytes_stored -% len;
-
-            @memcpy(@ptrCast([*]u8, dest), @ptrCast([*]const u8, self.storage.?[local_bytes..self.bytes_stored]), len);
+            dest.* = @ptrCast(@TypeOf(dest), @alignCast(@alignOf(@TypeOf(dest)), self.storage.?[local_bytes..self.bytes_stored])).*;
             self.bytes_stored = local_bytes;
         }
     }
@@ -629,4 +709,30 @@ pub fn test_pppy(zoro: *Zoro) !void {
 
     try zoro.yield();
     std.debug.assert(m == 4 and n == 2 and z == 3);
+}
+
+test "nested" {
+    var zoro = try Zoro.create(test_nested, 0);
+    std.debug.assert(zoro.status() == .SUSPENDED);
+    try zoro.restart();
+}
+
+pub fn test_nested2(zoro2: *Zoro) !void {
+    var zoro: *Zoro = undefined;
+    std.debug.assert(zoro2.status() == .RUNNING);
+    try zoro2.pop(&zoro);
+    std.debug.assert(zoro.status() == .ACTIVE);
+    std.debug.assert(zoro2.get_bytes_stored() == 0);
+    try zoro2.yield();
+}
+
+pub fn test_nested(zoro: *Zoro) !void {
+    var zoro2 = try Zoro.create(test_nested2, 0);
+    try zoro2.push(&zoro);
+    try zoro2.restart();
+    std.debug.assert(zoro2.get_bytes_stored() == 0);
+    std.debug.assert(zoro2.status() == .DONE);
+    std.debug.assert(zoro.status() == .RUNNING);
+    std.debug.assert(zoro.running() == zoro);
+    zoro2.destroy();
 }
