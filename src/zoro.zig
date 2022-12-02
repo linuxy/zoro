@@ -162,21 +162,21 @@ pub const WindowsX64Impl = struct {
 
         pub fn pop(self: *WindowsX64Impl.Zoro, dest: anytype) !void {
             const len = @sizeOf(@TypeOf(dest));
-            var res = c.mco_pop(co, dest, len);
+            var res = c.mco_pop(co, @ptrCast(?*anyopaque, dest), len);
             _ = res;
             _ = self;
         }
 
         pub fn push(self: *WindowsX64Impl.Zoro, src: anytype) !void {
             const len = @sizeOf(@TypeOf(src));
-            var res = c.mco_push(co, src, len);
+            var res = c.mco_push(co,  @ptrCast(?*anyopaque, src), len);
             _ = res;
             _ = self;
         }
 
         pub fn peek(self: *WindowsX64Impl.Zoro, dest: anytype) !void {
             const len = @sizeOf(@TypeOf(dest));
-            var res = c.mco_peek(co, dest, len);
+            var res = c.mco_peek(co, @ptrCast(?*anyopaque, dest), len);
             _ = res;
             _ = self;
         }
@@ -640,7 +640,7 @@ test "nested" {
 pub fn test_nested2(zoro2: *Zoro) !void {
     var zoro: *Zoro = undefined;
     std.debug.assert(zoro2.status() == .RUNNING);
-    try zoro2.pop(zoro);
+    try zoro2.pop(&zoro);
     std.debug.assert(zoro.status() == .ACTIVE);
     std.debug.assert(zoro2.get_bytes_stored() == 0);
     try zoro.yield();
