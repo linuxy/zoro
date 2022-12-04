@@ -118,21 +118,21 @@ pub const WindowsX64Impl = struct {
 
         pub fn pop(self: *WindowsX64Impl.Zoro, dest: anytype) !void {
             const len = @sizeOf(@TypeOf(dest));
-            var res = c.mco_pop(co, @ptrCast(?*anyopaque, dest), len);
+            var res = c.mco_pop(co, @intToPtr(?*anyopaque, @ptrToInt(dest)), len);
             _ = res;
             _ = self;
         }
 
         pub fn push(self: *WindowsX64Impl.Zoro, src: anytype) !void {
             const len = @sizeOf(@TypeOf(src));
-            var res = c.mco_push(co,  @ptrCast(?*anyopaque, src), len);
+            var res = c.mco_push(co,  @intToPtr(?*anyopaque, @ptrToInt(src)), len);
             _ = res;
             _ = self;
         }
 
         pub fn peek(self: *WindowsX64Impl.Zoro, dest: anytype) !void {
             const len = @sizeOf(@TypeOf(dest));
-            var res = c.mco_peek(co, @ptrCast(?*anyopaque, dest), len);
+            var res = c.mco_peek(co, @intToPtr(?*anyopaque, @ptrToInt(dest)), len);
             _ = res;
             _ = self;
         }
