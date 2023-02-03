@@ -20,10 +20,10 @@ else
     UnsupportedImpl;
 
 const ZoroState = enum {
-    DONE,
-    ACTIVE,
-    RUNNING,
-    SUSPENDED,
+    DEAD = 0,
+    NORMAL = 1,
+    RUNNING = 2,
+    SUSPENDED = 3,
 };
 
 const LinuxX64Impl = struct {
