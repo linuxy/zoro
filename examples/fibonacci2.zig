@@ -3,34 +3,36 @@ const Zoro = @import("zoro");
 
 pub fn main() !void {
     var zoro = try Zoro.create(fibonacci, 0);
-    defer zoro.destroy() catch unreachable;
+    var co = zoro.co;
+    
+    defer zoro.destroy();
     
     var max: u64 = 100000000;
-    Zoro.push(zoro.co, &max);
+    Zoro.push(co, &max);
     var counter: usize = 1;
-    while (Zoro.status(zoro.co) == .SUSPENDED) {
-        Zoro.restart(zoro.co); //resume
+    while (Zoro.status(co) == .SUSPENDED) {
+        Zoro.restart(co); //resume
 
         var ret: u64 = 0;
-        Zoro.pop(zoro.co, &ret);
+        Zoro.pop(co, &ret);
         std.log.info("fib {} = {}", .{counter, ret});
         counter += 1;
     }
 }
 
-pub fn fibonacci(zoro: *Zoro.Co) void {
+pub fn fibonacci(co: *Zoro.Co) void {
     var m: u64 = 1;
     var n: u64 = 1;
     var max: u64 = undefined;
 
-    Zoro.pop(zoro, &max);
+    Zoro.pop(co, &max);
     while (true) {
-        Zoro.push(zoro, &m);
-        Zoro.yield(zoro);
+        Zoro.push(co, &m);
+        Zoro.yield(co);
         var tmp: u64 = m +% n;
         m = n;
         n = tmp;
         if (m >= max) break;
     }
-    Zoro.push(zoro, &m);
+    Zoro.push(co, &m);
 }
