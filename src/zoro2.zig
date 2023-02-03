@@ -18,52 +18,48 @@ const allocator = std.heap.c_allocator;
 
 pub const Co = c.struct_mco_coro;
 
-co: *Co,
-
-pub fn create(func: anytype, size: usize) !*Zoro {
-    var self = try allocator.create(Zoro);
-    var coco: [*c]Co = undefined;
+pub fn create(func: anytype, size: usize) *Co {
+    var co: [*c]Co = undefined;
     var desc = c.mco_desc_init(@ptrCast(?*const fn([*c]c.mco_coro) callconv(.C) void, &func), size);
-    var res = c.mco_create(&coco, &desc);
+    var res = c.mco_create(&co, &desc);
     if(res != c.MCO_SUCCESS)
-        return error.ZoroFailedCreateCoroutine;
+        std.log.err("Zoro failed to create coroutine.", .{});
 
-    self.co = coco;
-    return self;
+    return co;
 }
 
 pub fn peek(co: *Co, dest: anytype) void {
   var res = c.mco_peek(co, dest, @sizeOf(@TypeOf(dest.*)));
   if(res != c.MCO_SUCCESS) {
-    std.log.info("Zoro failed to peek storage.", .{});
+    std.log.err("Zoro failed to peek storage.", .{});
   }
 }
 
 pub fn pop(co: *Co, dest: anytype) void {
   var res = c.mco_pop(co, dest, @sizeOf(@TypeOf(dest.*)));
   if(res != c.MCO_SUCCESS) {
-    std.log.info("Zoro failed to pop storage.", .{});
+    std.log.err("Zoro failed to pop storage.", .{});
   }
 }
 
 pub fn push(co: *Co, src: anytype) void {
     var res = c.mco_push(co, src, @sizeOf(@TypeOf(src.*)));
     if(res != c.MCO_SUCCESS) {
-        std.log.info("Zoro failed to push storage.", .{});
+        std.log.err("Zoro failed to push storage.", .{});
     }
 }
 
 pub fn restart(co: *Co) void {
     var res = c.mco_resume(co);
     if(res != c.MCO_SUCCESS) {
-        std.log.info("Zoro failed to restart coroutine.", .{});
+        std.log.err("Zoro failed to restart coroutine.", .{});
     }
 }
 
 pub fn yield(co: *Co) void {
     var res = c.mco_yield(co);
     if(res != c.MCO_SUCCESS)
-        std.log.info("Zoro failed to yield coroutine.", .{});
+        std.log.err("Zoro failed to yield coroutine.", .{});
 }
 
 pub fn status(co: *Co) ZoroState {
@@ -71,17 +67,15 @@ pub fn status(co: *Co) ZoroState {
     return res;
 }
 
-pub fn destroy(self: *Zoro) void {
-    var res = c.mco_destroy(self.co);
+pub fn destroy(co: *Co) void {
+    var res = c.mco_destroy(co);
     if(res != c.MCO_SUCCESS)
-        std.log.info("Zoro failed to destroy coroutine.", .{});
-    allocator.destroy(self);
+        std.log.err("Zoro failed to destroy coroutine.", .{});
 }
 
 test "stack push, pop, and peek" {
-    var zoro = try Zoro.create(test_pppy, 0);
-    var co = zoro.co;
-    defer zoro.destroy();
+    var co = Zoro.create(test_pppy, 0);
+    defer Zoro.destroy(co);
 
     var n: u32 = 2;
     var m: u32 = 3;

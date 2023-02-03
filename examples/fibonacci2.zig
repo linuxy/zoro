@@ -2,10 +2,8 @@ const std = @import("std");
 const Zoro = @import("zoro");
 
 pub fn main() !void {
-    var zoro = try Zoro.create(fibonacci, 0);
-    var co = zoro.co;
-    
-    defer zoro.destroy();
+    var co = Zoro.create(fibonacci, 0);
+    defer Zoro.destroy(co);
     
     var max: u64 = 100000000;
     Zoro.push(co, &max);
